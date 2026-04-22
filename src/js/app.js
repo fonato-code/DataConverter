@@ -172,6 +172,64 @@
         });
     }
 
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    function formatCellForHtml(value) {
+        return escapeHtml(value).replace(/\r?\n/g, "<br>");
+    }
+
+    function buildObjectsFromRows(rows, headers) {
+        return rows.map(function (row) {
+            return headers.reduce(function (record, header, index) {
+                record[header] = index < row.length ? row[index] : "";
+                return record;
+            }, {});
+        });
+    }
+
+    function buildHtmlTable(rows, headers, includeHeader) {
+        const headMarkup = includeHeader
+            ? [
+                "  <thead>",
+                "    <tr>",
+                headers.map(function (header) {
+                    return "      <th>" + formatCellForHtml(header) + "</th>";
+                }).join("\n"),
+                "    </tr>",
+                "  </thead>"
+            ].join("\n")
+            : "";
+
+        const bodyMarkup = [
+            "  <tbody>",
+            rows.map(function (row) {
+                return [
+                    "    <tr>",
+                    headers.map(function (_header, index) {
+                        const cellValue = index < row.length ? row[index] : "";
+                        return "      <td>" + formatCellForHtml(cellValue) + "</td>";
+                    }).join("\n"),
+                    "    </tr>"
+                ].join("\n");
+            }).join("\n"),
+            "  </tbody>"
+        ].join("\n");
+
+        return [
+            "<table>",
+            headMarkup,
+            bodyMarkup,
+            "</table>"
+        ].filter(Boolean).join("\n");
+    }
+
     createApp({
         setup() {
             const state = reactive({
@@ -226,14 +284,11 @@
                             return Math.max(max, row.length);
                         }, 0);
                         const headers = buildDefaultHeaders(maxColumnCount);
-                        const objectsWithoutHeader = rows.map(function (row) {
-                            return headers.reduce(function (record, header, index) {
-                                record[header] = index < row.length ? row[index] : "";
-                                return record;
-                            }, {});
-                        });
+                        if (state.outputFormat === "html-table") {
+                            return buildHtmlTable(rows, headers, true);
+                        }
 
-                        return JSON.stringify(objectsWithoutHeader, null, 2);
+                        return JSON.stringify(buildObjectsFromRows(rows, headers), null, 2);
                     }
 
                     const [headerRow, ...dataRows] = rows;
@@ -241,14 +296,11 @@
                         return normalizeKey(String(cell), index, state.headerTransform);
                     });
 
-                    const objects = dataRows.map(function (row) {
-                        return headers.reduce(function (record, header, index) {
-                            record[header] = index < row.length ? row[index] : "";
-                            return record;
-                        }, {});
-                    });
+                    if (state.outputFormat === "html-table") {
+                        return buildHtmlTable(dataRows, headers, true);
+                    }
 
-                    return JSON.stringify(objects, null, 2);
+                    return JSON.stringify(buildObjectsFromRows(dataRows, headers), null, 2);
                 } catch (error) {
                     return "Erro ao converter: " + error.message;
                 }
@@ -344,6 +396,7 @@
                                             <div class="col-12 col-sm-4 col-lg-5 col-xxl-4 px-0">
                                                 <select class="form-select" v-model="state.outputFormat">
                                                     <option value="json">JSON</option>
+                                                    <option value="html-table">HTML - Tables</option>
                                                 </select>
                                             </div>
                                         </div>
