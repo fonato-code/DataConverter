@@ -107,11 +107,9 @@
             return "";
         }
 
-        const normalized = decimalSign === "comma"
-            ? value.replace(/\./g, "").replace(",", ".")
-            : value.replace(/,/g, "");
+        const normalized = normalizeNumericString(value, decimalSign);
 
-        if (/^-?\d+(\.\d+)?$/.test(normalized)) {
+        if (normalized && /^-?\d+(\.\d+)?$/.test(normalized)) {
             return Number(normalized);
         }
 
@@ -122,11 +120,55 @@
         return value;
     }
 
+    function normalizeNumericString(value, decimalSign) {
+        const compactValue = value.replace(/\s/g, "");
+        const dotPattern = /^-?\d+(\.\d+)?$/;
+        const commaPattern = /^-?\d+(,\d+)?$/;
+        const usThousandsPattern = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/;
+        const brThousandsPattern = /^-?\d{1,3}(\.\d{3})+(,\d+)?$/;
+
+        if (decimalSign === "comma") {
+            if (brThousandsPattern.test(compactValue)) {
+                return compactValue.replace(/\./g, "").replace(",", ".");
+            }
+
+            if (commaPattern.test(compactValue)) {
+                return compactValue.replace(",", ".");
+            }
+
+            if (dotPattern.test(compactValue)) {
+                return compactValue;
+            }
+
+            return null;
+        }
+
+        if (decimalSign === "dot") {
+            if (usThousandsPattern.test(compactValue) && compactValue.indexOf(".") !== -1) {
+                return compactValue.replace(/,/g, "");
+            }
+
+            if (dotPattern.test(compactValue)) {
+                return compactValue;
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
     function buildRows(text, delimiter, decimalSign) {
         return parseDelimitedText(text, delimiter).map(function (row) {
             return row.map(function (cell) {
                 return parseCell(cell, decimalSign);
             });
+        });
+    }
+
+    function buildDefaultHeaders(columnCount) {
+        return Array.from({ length: columnCount }, function (_value, index) {
+            return "Col" + (index + 1);
         });
     }
 
@@ -180,7 +222,18 @@
                     }
 
                     if (!state.firstRowIsHeader) {
-                        return JSON.stringify(rows, null, 2);
+                        const maxColumnCount = rows.reduce(function (max, row) {
+                            return Math.max(max, row.length);
+                        }, 0);
+                        const headers = buildDefaultHeaders(maxColumnCount);
+                        const objectsWithoutHeader = rows.map(function (row) {
+                            return headers.reduce(function (record, header, index) {
+                                record[header] = index < row.length ? row[index] : "";
+                                return record;
+                            }, {});
+                        });
+
+                        return JSON.stringify(objectsWithoutHeader, null, 2);
                     }
 
                     const [headerRow, ...dataRows] = rows;
