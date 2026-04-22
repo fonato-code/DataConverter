@@ -2,23 +2,86 @@
     const { createApp, computed, reactive } = Vue;
 
     function detectDelimiter(text) {
-        const sample = text
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .slice(0, 5);
+        const scores = {
+            ",": scoreDelimiter(text, ","),
+            "\t": scoreDelimiter(text, "\t")
+        };
 
-        if (!sample.length) {
-            return ",";
-        }
-
-        const tabScore = sample.reduce((count, line) => count + ((line.match(/\t/g) || []).length), 0);
-        const commaScore = sample.reduce((count, line) => count + ((line.match(/,/g) || []).length), 0);
-        return tabScore > commaScore ? "\t" : ",";
+        return scores["\t"] > scores[","] ? "\t" : ",";
     }
 
-    function splitLine(line, delimiter) {
-        return line.split(delimiter).map((part) => part.trim());
+    function scoreDelimiter(text, delimiter) {
+        const rows = parseDelimitedText(text, delimiter).slice(0, 5);
+        return rows.reduce(function (total, row) {
+            return total + (row.length > 1 ? row.length : 0);
+        }, 0);
+    }
+
+    function parseDelimitedText(text, delimiter) {
+        const rows = [];
+        let row = [];
+        let field = "";
+        let inQuotes = false;
+
+        function pushField() {
+            row.push(field);
+            field = "";
+        }
+
+        function pushRow() {
+            if (row.length === 1 && row[0] === "" && field === "") {
+                row = [];
+                return;
+            }
+
+            rows.push(row);
+            row = [];
+        }
+
+        for (let index = 0; index < text.length; index += 1) {
+            const char = text[index];
+            const nextChar = text[index + 1];
+
+            if (char === "\"") {
+                if (inQuotes && nextChar === "\"") {
+                    field += "\"";
+                    index += 1;
+                    continue;
+                }
+
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && char === delimiter) {
+                pushField();
+                continue;
+            }
+
+            if (!inQuotes && (char === "\n" || char === "\r")) {
+                pushField();
+                pushRow();
+
+                if (char === "\r" && nextChar === "\n") {
+                    index += 1;
+                }
+
+                continue;
+            }
+
+            field += char;
+        }
+
+        if (field !== "" || row.length) {
+            pushField();
+            pushRow();
+        }
+
+        return rows.filter(function (currentRow) {
+            return currentRow.some(function (cell) {
+                return cell !== "";
+            });
+        });
     }
 
     function normalizeKey(value, index, transform) {
@@ -60,10 +123,11 @@
     }
 
     function buildRows(text, delimiter, decimalSign) {
-        return text
-            .split(/\r?\n/)
-            .filter((line) => line.trim() !== "")
-            .map((line) => splitLine(line, delimiter).map((cell) => parseCell(cell, decimalSign)));
+        return parseDelimitedText(text, delimiter).map(function (row) {
+            return row.map(function (cell) {
+                return parseCell(cell, decimalSign);
+            });
+        });
     }
 
     createApp({
@@ -144,92 +208,105 @@
             };
         },
         template: `
-            <div class="app-shell">
-                <aside class="sidebar">
-                    <div class="brand">
-                        <h1>ExcelConverter</h1>
-                        <p>Converta conteudo copiado de planilhas para JSON sem depender de build ou bibliotecas externas alem do Vue local.</p>
-                    </div>
+            <div class="app-wrap container-fluid">
 
-                    <div class="settings">
-                        <div class="field">
-                            <label for="delimiter">Delimiter</label>
-                            <select id="delimiter" v-model="state.delimiter">
-                                <option value="auto">Auto</option>
-                                <option value="comma">Comma</option>
-                                <option value="tab">Tab</option>
-                            </select>
-                        </div>
+                <div class="row g-4">
+                    <aside class="col-12 col-xl-3">
+                        <div class="sidebar-card h-100">
+                            <div class="sidebar-accent"></div>
+                            <div class="card-body p-4">
+                                <div class="sidebar-title mb-2">Configuracoes</div>
+                                <h2 class="h4 mb-3">Controle da conversao</h2>
+                                <p class="text-secondary mb-4">Ajuste como o texto colado deve ser interpretado antes de gerar o JSON.</p>
 
-                        <div class="field">
-                            <label for="decimal-sign">DecimalSign</label>
-                            <select id="decimal-sign" v-model="state.decimalSign">
-                                <option value="dot">Dot</option>
-                                <option value="comma">Comma</option>
-                            </select>
-                        </div>
-
-                        <label class="toggle" for="header-row">
-                            <input id="header-row" type="checkbox" v-model="state.firstRowIsHeader">
-                            <span>First row is header</span>
-                        </label>
-
-                        <div class="field">
-                            <label for="header-transform">Header transform</label>
-                            <select id="header-transform" v-model="state.headerTransform">
-                                <option value="none">none</option>
-                                <option value="uppercase">uppercase</option>
-                                <option value="downcase">downcase</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="note">
-                        O modo Auto compara virgulas e tabs nas primeiras linhas coladas. Para conteudos CSV em padrao brasileiro, ajuste DecimalSign para Comma.
-                    </div>
-                </aside>
-
-                <main class="workspace">
-                    <div class="workspace-header">
-                        <div>
-                            <h2>Conversao</h2>
-                            <p>Cole o conteudo bruto no painel esquerdo e acompanhe o JSON gerado em tempo real.</p>
-                        </div>
-                        <div class="status" :class="statusMessage.tone">
-                            {{ statusMessage.text }}
-                        </div>
-                    </div>
-
-                    <div class="panels">
-                        <section class="panel">
-                            <div class="panel-head">
-                                <strong>Input</strong>
-                            </div>
-                            <textarea
-                                v-model="state.input"
-                                placeholder="Cole aqui dados copiados do Excel, CSV ou TSV"
-                                spellcheck="false"
-                            ></textarea>
-                        </section>
-
-                        <section class="panel">
-                            <div class="panel-head">
-                                <strong>Output</strong>
-                                <div class="field">
-                                    <select v-model="state.outputFormat">
-                                        <option value="json">JSON</option>
+                                <div class="mb-3">
+                                    <label for="delimiter" class="form-label fw-semibold">Delimiter</label>
+                                    <select id="delimiter" class="form-select" v-model="state.delimiter">
+                                        <option value="auto">Auto</option>
+                                        <option value="comma">Comma</option>
+                                        <option value="tab">Tab</option>
                                     </select>
                                 </div>
+
+                                <div class="mb-3">
+                                    <label for="decimal-sign" class="form-label fw-semibold">DecimalSign</label>
+                                    <select id="decimal-sign" class="form-select" v-model="state.decimalSign">
+                                        <option value="dot">Dot</option>
+                                        <option value="comma">Comma</option>
+                                    </select>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input id="header-row" class="form-check-input" type="checkbox" role="switch" v-model="state.firstRowIsHeader">
+                                    <label class="form-check-label fw-semibold" for="header-row">First row is header</label>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label for="header-transform" class="form-label fw-semibold">Header transform</label>
+                                    <select id="header-transform" class="form-select" v-model="state.headerTransform">
+                                        <option value="none">none</option>
+                                        <option value="uppercase">uppercase</option>
+                                        <option value="downcase">downcase</option>
+                                    </select>
+                                </div>
+
+                                <div class="hint-box rounded-4 p-3">
+                                    <div class="fw-bold mb-2">Dica</div>
+                                    <div class="text-secondary small">No modo Auto, o sistema compara virgulas e tabs nas primeiras linhas. Para valores como 10,50 use DecimalSign em Comma.</div>
+                                </div>
                             </div>
-                            <textarea
-                                :value="output"
-                                readonly
-                                spellcheck="false"
-                                placeholder="O resultado convertido sera exibido aqui"
-                            ></textarea>
-                        </section>
-                    </div>
-                </main>
+                        </div>
+                    </aside>
+
+                    <main class="col-12 col-xl-9">
+                        <div class="row g-4">
+                            <section class="col-12 col-lg-6">
+                                <div class="panel-card input-panel h-100">
+                                    <div class="card-body p-4">
+                                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+                                            <div>
+                                                <div class="editor-label mb-1">Input</div>
+                                                <h3 class="h5 mb-0">Texto de origem</h3>
+                                            </div>
+                                            <span class="badge rounded-pill text-bg-primary px-3 py-2">Excel / CSV / TSV</span>
+                                        </div>
+                                        <textarea
+                                            class="form-control editor-textarea"
+                                            v-model="state.input"
+                                            placeholder="Cole aqui dados copiados do Excel, CSV ou TSV"
+                                            spellcheck="false"
+                                        ></textarea>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="col-12 col-lg-6">
+                                <div class="panel-card output-panel h-100">
+                                    <div class="card-body p-4">
+                                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+                                            <div>
+                                                <div class="editor-label mb-1">Output</div>
+                                                <h3 class="h5 mb-0">Resultado convertido</h3>
+                                            </div>
+                                            <div class="col-12 col-sm-4 col-lg-5 col-xxl-4 px-0">
+                                                <select class="form-select" v-model="state.outputFormat">
+                                                    <option value="json">JSON</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <textarea
+                                            class="form-control editor-textarea"
+                                            :value="output"
+                                            readonly
+                                            spellcheck="false"
+                                            placeholder="O resultado convertido sera exibido aqui"
+                                        ></textarea>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </main>
+                </div>
             </div>
         `
     }).mount("#app");
