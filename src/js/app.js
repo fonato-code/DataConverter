@@ -1,5 +1,5 @@
 (function () {
-    const { createApp, computed, reactive } = Vue;
+    const { createApp, computed, reactive, watch } = Vue;
 
     function detectDelimiter(text) {
         const scores = {
@@ -358,8 +358,8 @@
         return "'" + escapeSqlString(value) + "'";
     }
 
-    function buildSql(headers, rows) {
-        const tableName = "ExcelConverter";
+    function buildSql(headers, rows, tableName) {
+        const resolvedTableName = sanitizeSqlIdentifier(tableName || "ExcelConverter");
         const columnDefinitions = headers.map(function (header, index) {
             return "\t" + sanitizeSqlIdentifier(header) + " " + inferSqlType(rows, index);
         });
@@ -373,11 +373,11 @@
         }).join(",\n");
 
         return [
-            "CREATE TABLE " + tableName + " (",
+            "CREATE TABLE " + resolvedTableName + " (",
             "\tid INT NOT NULL AUTO_INCREMENT PRIMARY KEY,",
             columnDefinitions.join(",\n"),
             ");",
-            "INSERT INTO " + tableName,
+            "INSERT INTO " + resolvedTableName,
             "\t(" + insertColumns + ")",
             "VALUES",
             values + ";"
@@ -409,47 +409,51 @@
         ].join("\n");
     }
 
-    function buildXmlProperties(headers, rows) {
+    function buildXmlProperties(headers, rows, rootTagName, rowTagName) {
+        const rootTag = sanitizeXmlTagName(rootTagName || "rows", "rows");
+        const rowTag = sanitizeXmlTagName(rowTagName || "row", "row");
         const lines = [
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-            "<rows>"
+            "<" + rootTag + ">"
         ];
 
         rows.forEach(function (row) {
             const attributes = headers.map(function (header, index) {
                 const cellValue = index < row.length ? row[index] : "";
-                return header + "=\"" + escapeXml(cellValue) + "\"";
+                return sanitizeXmlTagName(header, "Col" + (index + 1)) + "=\"" + escapeXml(cellValue) + "\"";
             }).join(" ");
-            lines.push("\t<row " + attributes + "></row>");
+            lines.push("\t<" + rowTag + " " + attributes + "></" + rowTag + ">");
         });
 
-        lines.push("</rows>");
+        lines.push("</" + rootTag + ">");
         return lines.join("\n");
     }
 
-    function buildXmlNodes(headers, rows) {
+    function buildXmlNodes(headers, rows, rootTagName, rowTagName) {
         const xmlHeaders = headers.map(function (header, index) {
             return sanitizeXmlTagName(header, "Col" + (index + 1));
         });
+        const rootTag = sanitizeXmlTagName(rootTagName || "rows", "rows");
+        const rowTag = sanitizeXmlTagName(rowTagName || "row", "row");
         const lines = [
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-            "<rows>"
+            "<" + rootTag + ">"
         ];
 
         rows.forEach(function (row) {
-            lines.push("\t<row>");
+            lines.push("\t<" + rowTag + ">");
             xmlHeaders.forEach(function (header, index) {
                 const cellValue = index < row.length ? row[index] : "";
                 lines.push("\t\t<" + header + ">" + escapeXml(cellValue) + "</" + header + ">");
             });
-            lines.push("\t</row>");
+            lines.push("\t</" + rowTag + ">");
         });
 
-        lines.push("</rows>");
+        lines.push("</" + rootTag + ">");
         return lines.join("\n");
     }
 
-    function buildOutput(format, headers, rows) {
+    function buildOutput(format, headers, rows, options) {
         if (format === "json") {
             return JSON.stringify(buildObjectsFromRows(rows, headers), null, 2);
         }
@@ -471,7 +475,7 @@
         }
 
         if (format === "sql") {
-            return buildSql(headers, rows);
+            return buildSql(headers, rows, options.sqlTableName);
         }
 
         if (format === "php") {
@@ -479,11 +483,11 @@
         }
 
         if (format === "xml-properties") {
-            return buildXmlProperties(headers, rows);
+            return buildXmlProperties(headers, rows, options.xmlRootTagName, options.xmlRowTagName);
         }
 
         if (format === "xml-nodes") {
-            return buildXmlNodes(headers, rows);
+            return buildXmlNodes(headers, rows, options.xmlRootTagName, options.xmlRowTagName);
         }
 
         return "";
@@ -497,7 +501,14 @@
                 decimalSign: "dot",
                 firstRowIsHeader: true,
                 headerTransform: "none",
-                outputFormat: "json"
+                outputFormat: "json",
+                xmlRootTagName: "rows",
+                xmlRowTagName: "row",
+                sqlTableName: "ExcelConverter",
+                columnConfigs: [],
+                draggedColumnKey: "",
+                inputSectionCollapsed: false,
+                outputSectionCollapsed: false
             });
 
             const resolvedDelimiter = computed(function () {
@@ -527,37 +538,156 @@
                 };
             });
 
+            const parsedRows = computed(function () {
+                if (!state.input.trim()) {
+                    return [];
+                }
+
+                return buildRows(state.input, resolvedDelimiter.value, state.decimalSign);
+            });
+
+            const preparedData = computed(function () {
+                return prepareTableData(
+                    parsedRows.value,
+                    state.firstRowIsHeader,
+                    state.headerTransform
+                );
+            });
+
+            const availableColumns = computed(function () {
+                return preparedData.value.headers.map(function (header, index) {
+                    return {
+                        key: header + "__" + index,
+                        header: header,
+                        sourceIndex: index
+                    };
+                });
+            });
+
+            watch(availableColumns, function (nextColumns) {
+                const previousByKey = state.columnConfigs.reduce(function (accumulator, column) {
+                    accumulator[column.key] = column;
+                    return accumulator;
+                }, {});
+
+                state.columnConfigs = nextColumns.map(function (column) {
+                    const previous = previousByKey[column.key];
+                    return {
+                        key: column.key,
+                        header: column.header,
+                        sourceIndex: column.sourceIndex,
+                        enabled: previous ? previous.enabled : true
+                    };
+                });
+            }, { immediate: true });
+
+            const selectedColumns = computed(function () {
+                return state.columnConfigs.filter(function (column) {
+                    return column.enabled;
+                });
+            });
+
+            const orderedHeaders = computed(function () {
+                return selectedColumns.value.map(function (column) {
+                    return column.header;
+                });
+            });
+
+            const orderedRows = computed(function () {
+                return preparedData.value.dataRows.map(function (row) {
+                    return selectedColumns.value.map(function (column) {
+                        return column.sourceIndex < row.length ? row[column.sourceIndex] : "";
+                    });
+                });
+            });
+
+            const isXmlOutput = computed(function () {
+                return state.outputFormat === "xml-properties" || state.outputFormat === "xml-nodes";
+            });
+
+            const isSqlOutput = computed(function () {
+                return state.outputFormat === "sql";
+            });
+
             const output = computed(function () {
                 if (!state.input.trim()) {
                     return "";
                 }
 
                 try {
-                    const rows = buildRows(state.input, resolvedDelimiter.value, state.decimalSign);
-                    if (!rows.length) {
+                    if (!parsedRows.value.length) {
                         return "";
                     }
 
-                    const prepared = prepareTableData(
-                        rows,
-                        state.firstRowIsHeader,
-                        state.headerTransform
-                    );
-
                     return buildOutput(
                         state.outputFormat,
-                        prepared.headers,
-                        prepared.dataRows
+                        orderedHeaders.value,
+                        orderedRows.value,
+                        {
+                            sqlTableName: state.sqlTableName,
+                            xmlRootTagName: state.xmlRootTagName,
+                            xmlRowTagName: state.xmlRowTagName
+                        }
                     );
                 } catch (error) {
                     return "Erro ao converter: " + error.message;
                 }
             });
 
+            function moveColumn(draggedKey, targetKey) {
+                if (!draggedKey || !targetKey || draggedKey === targetKey) {
+                    return;
+                }
+
+                const draggedIndex = state.columnConfigs.findIndex(function (column) {
+                    return column.key === draggedKey;
+                });
+                const targetIndex = state.columnConfigs.findIndex(function (column) {
+                    return column.key === targetKey;
+                });
+
+                if (draggedIndex === -1 || targetIndex === -1) {
+                    return;
+                }
+
+                const movedColumn = state.columnConfigs.splice(draggedIndex, 1)[0];
+                state.columnConfigs.splice(targetIndex, 0, movedColumn);
+            }
+
+            function startColumnDrag(columnKey) {
+                state.draggedColumnKey = columnKey;
+            }
+
+            function dropColumn(columnKey) {
+                moveColumn(state.draggedColumnKey, columnKey);
+                state.draggedColumnKey = "";
+            }
+
+            function endColumnDrag() {
+                state.draggedColumnKey = "";
+            }
+
+            function toggleSection(sectionName) {
+                if (sectionName === "input") {
+                    state.inputSectionCollapsed = !state.inputSectionCollapsed;
+                    return;
+                }
+
+                if (sectionName === "output") {
+                    state.outputSectionCollapsed = !state.outputSectionCollapsed;
+                }
+            }
+
             return {
                 state,
                 statusMessage,
-                output
+                output,
+                isXmlOutput,
+                isSqlOutput,
+                startColumnDrag,
+                dropColumn,
+                endColumnDrag,
+                toggleSection
             };
         },
         template: `
@@ -567,40 +697,106 @@
                     <aside class="col-12 col-xl-3">
                         <div class="sidebar-card h-100">
                             <div class="sidebar-accent"></div>
-                            <div class="card-body p-4">
+                            <div class="card-body p-4 sidebar-scroll">
                                 <div class="sidebar-title mb-2">Configuracoes</div>
                                 <h2 class="h4 mb-3">Controle da conversao</h2>
-                                <p class="text-secondary mb-4">Ajuste como o texto colado deve ser interpretado antes de gerar o JSON.</p>
+                                <p class="text-secondary mb-4">Ajuste como o texto colado deve ser interpretado antes de gerar o output.</p>
 
-                                <div class="mb-3">
-                                    <label for="delimiter" class="form-label fw-semibold">Delimiter</label>
-                                    <select id="delimiter" class="form-select" v-model="state.delimiter">
-                                        <option value="auto">Auto</option>
-                                        <option value="comma">Comma</option>
-                                        <option value="tab">Tab</option>
-                                    </select>
+                                <div class="border rounded-4 p-3 mb-4 bg-white bg-opacity-50">
+                                    <button class="config-section-toggle" type="button" @click="toggleSection('input')">
+                                        <div class="d-flex align-items-center justify-content-between gap-3">
+                                            <div class="editor-label mb-0">Input</div>
+                                            <span class="config-section-chevron" :class="{ 'is-collapsed': state.inputSectionCollapsed }">▼</span>
+                                        </div>
+                                    </button>
+
+                                    <div v-show="!state.inputSectionCollapsed" class="mt-3">
+                                        <div class="mb-3">
+                                            <label for="delimiter" class="form-label fw-semibold">Delimiter</label>
+                                            <select id="delimiter" class="form-select" v-model="state.delimiter">
+                                                <option value="auto">Auto</option>
+                                                <option value="comma">Comma</option>
+                                                <option value="tab">Tab</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="decimal-sign" class="form-label fw-semibold">DecimalSign</label>
+                                            <select id="decimal-sign" class="form-select" v-model="state.decimalSign">
+                                                <option value="dot">Dot</option>
+                                                <option value="comma">Comma</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="form-check form-switch mb-3">
+                                            <input id="header-row" class="form-check-input" type="checkbox" role="switch" v-model="state.firstRowIsHeader">
+                                            <label class="form-check-label fw-semibold" for="header-row">First row is header</label>
+                                        </div>
+
+                                        <div>
+                                            <label for="header-transform" class="form-label fw-semibold">Header transform</label>
+                                            <select id="header-transform" class="form-select" v-model="state.headerTransform">
+                                                <option value="none">none</option>
+                                                <option value="uppercase">uppercase</option>
+                                                <option value="downcase">downcase</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
 
-                                <div class="mb-3">
-                                    <label for="decimal-sign" class="form-label fw-semibold">DecimalSign</label>
-                                    <select id="decimal-sign" class="form-select" v-model="state.decimalSign">
-                                        <option value="dot">Dot</option>
-                                        <option value="comma">Comma</option>
-                                    </select>
-                                </div>
+                                <div class="border rounded-4 p-3 mb-4 bg-white bg-opacity-50">
+                                    <button class="config-section-toggle" type="button" @click="toggleSection('output')">
+                                        <div class="d-flex align-items-center justify-content-between gap-3">
+                                            <div class="editor-label mb-0">Output</div>
+                                            <span class="config-section-chevron" :class="{ 'is-collapsed': state.outputSectionCollapsed }">▼</span>
+                                        </div>
+                                    </button>
 
-                                <div class="form-check form-switch mb-3">
-                                    <input id="header-row" class="form-check-input" type="checkbox" role="switch" v-model="state.firstRowIsHeader">
-                                    <label class="form-check-label fw-semibold" for="header-row">First row is header</label>
-                                </div>
+                                    <div v-show="!state.outputSectionCollapsed" class="mt-3">
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Colunas</label>
+                                            <div class="small text-secondary mb-2">Marque para incluir no resultado e arraste para reordenar.</div>
+                                            <div v-if="state.columnConfigs.length" class="d-grid gap-2">
+                                                <div
+                                                    v-for="column in state.columnConfigs"
+                                                    :key="column.key"
+                                                    class="column-item d-flex align-items-center gap-2 border rounded-3 px-2 py-2 bg-body"
+                                                    draggable="true"
+                                                    @dragstart="startColumnDrag(column.key)"
+                                                    @dragover.prevent
+                                                    @drop.prevent="dropColumn(column.key)"
+                                                    @dragend="endColumnDrag"
+                                                >
+                                                    <span class="column-grip text-secondary" title="Arrastar">::</span>
+                                                    <input
+                                                        :id="'column-' + column.key"
+                                                        class="form-check-input mt-0"
+                                                        type="checkbox"
+                                                        v-model="column.enabled"
+                                                    >
+                                                    <label :for="'column-' + column.key" class="form-check-label flex-grow-1 small fw-semibold">
+                                                        {{ column.header }}
+                                                    </label>
+                                                </div>
+                                            </div>
+                                            <div v-else class="small text-secondary">Cole um texto no input para detectar as colunas.</div>
+                                        </div>
 
-                                <div class="mb-4">
-                                    <label for="header-transform" class="form-label fw-semibold">Header transform</label>
-                                    <select id="header-transform" class="form-select" v-model="state.headerTransform">
-                                        <option value="none">none</option>
-                                        <option value="uppercase">uppercase</option>
-                                        <option value="downcase">downcase</option>
-                                    </select>
+                                        <div v-if="isXmlOutput" class="mb-3">
+                                            <label for="xml-root-tag" class="form-label fw-semibold">Root Row Tag Name</label>
+                                            <input id="xml-root-tag" class="form-control" v-model="state.xmlRootTagName" placeholder="rows">
+                                        </div>
+
+                                        <div v-if="isXmlOutput" class="mb-3">
+                                            <label for="xml-row-tag" class="form-label fw-semibold">Row Tag Name</label>
+                                            <input id="xml-row-tag" class="form-control" v-model="state.xmlRowTagName" placeholder="row">
+                                        </div>
+
+                                        <div v-if="isSqlOutput">
+                                            <label for="sql-table-name" class="form-label fw-semibold">Tabela</label>
+                                            <input id="sql-table-name" class="form-control" v-model="state.sqlTableName" placeholder="ExcelConverter">
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div class="hint-box rounded-4 p-3">

@@ -22,9 +22,6 @@ body {
         linear-gradient(180deg, #f8fbff 0%, var(--ec-bg) 100%);
 }
 
-textarea {
-    height: calc(100vh - 162px);
-}
 
 .app-wrap {
     position: relative;
@@ -82,6 +79,14 @@ textarea {
     overflow: hidden;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 248, 255, 0.9));
+    position: sticky;
+    top: 1.5rem;
+    max-height: calc(100vh - 3rem);
+}
+
+.sidebar-scroll {
+    overflow-y: auto;
+    max-height: calc(100vh - 3.5rem);
 }
 
 .sidebar-accent {
@@ -129,8 +134,42 @@ textarea {
     text-transform: uppercase;
 }
 
+.config-section-toggle {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    width: 100%;
+    padding: 0;
+    text-align: left;
+}
+
+.config-section-toggle:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(53, 92, 255, 0.16);
+    border-radius: 0.75rem;
+}
+
+.config-section-chevron {
+    font-size: 0.9rem;
+    transition: transform 0.2s ease;
+}
+
+.config-section-chevron.is-collapsed {
+    transform: rotate(-90deg);
+}
+
+.column-item {
+    cursor: grab;
+}
+
+.column-grip {
+    user-select: none;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+
 .editor-textarea {
-    min-height: 540px;
+    min-height: clamp(18rem, 52vh, 36rem);
     resize: vertical;
     border-radius: 1rem;
     border: 1px solid rgba(53, 92, 255, 0.12);
@@ -167,7 +206,28 @@ textarea {
 }
 
 @media (max-width: 991.98px) {
+    .app-wrap {
+        padding: 1rem;
+    }
+
+    .sidebar-card {
+        position: static;
+        max-height: none;
+    }
+
+    .sidebar-scroll {
+        max-height: none;
+        overflow: visible;
+    }
+
     .editor-textarea {
-        min-height: 320px;
+        min-height: 14rem;
+    }
+
+}
+
+@media (max-width: 575.98px) {
+    .editor-textarea {
+        min-height: 12rem;
     }
 }
