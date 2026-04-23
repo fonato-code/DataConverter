@@ -560,11 +560,9 @@ html {
 }
 
 .preview-column-menu {
-    position: absolute;
-    top: calc(100% + 0.35rem);
-    right: 0.35rem;
+    position: fixed;
     z-index: 1070;
-    width: 18rem;
+    width: 20rem;
     padding: 0.85rem;
     border: 1px solid var(--ec-border);
     border-radius: 0.9rem;
@@ -576,6 +574,29 @@ html {
 
 .preview-column-menu-group {
     padding-top: 0.15rem;
+}
+
+.preview-menu-checkbox-list {
+    display: grid;
+    gap: 0.45rem;
+    max-height: 9rem;
+    overflow: auto;
+    padding: 0.15rem 0.1rem 0.15rem 0;
+}
+
+.preview-menu-checkbox-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.85rem;
+    color: var(--ec-ink);
+}
+
+.preview-menu-checkbox-item span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .preview-empty-row {

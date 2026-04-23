@@ -168,14 +168,18 @@
         return extensionMap[format] || "txt";
     }
 
-    function cloneRows(rows) {
-        return rows.map(function (row) {
-            return row.slice();
-        });
-    }
+            function cloneRows(rows) {
+                return rows.map(function (row) {
+                    return row.slice();
+                });
+            }
 
-    createApp({
-        setup() {
+            function findFocusableElement(selector) {
+                return document.querySelector(selector);
+            }
+
+            createApp({
+                setup() {
             let standardColumnKeySeed = 0;
             let standardRowKeySeed = 0;
             let draggedPreviewRowIndex = -1;
@@ -258,6 +262,14 @@
                 return String(value || "");
             }
 
+            function escapeSelectorToken(value) {
+                if (window.CSS && typeof window.CSS.escape === "function") {
+                    return window.CSS.escape(String(value));
+                }
+
+                return String(value).replace(/["\\]/g, "\\$&");
+            }
+
             const defaultState = {
                 theme: "dark",
                 input: "",
@@ -289,6 +301,7 @@
                 previewColumnMenuTop: 0,
                 previewColumnMenuLeft: 0,
                 previewColumnMenuMaxHeight: 0,
+                previewColumnMenuWidth: 320,
                 rowConfigs: [],
                 columnConfigs: [],
                 draggedColumnKey: "",
@@ -305,6 +318,8 @@
                 previewPageSize: 50,
                 previewSortColumnKey: "",
                 previewSortDirection: "none",
+                pendingFocusColumnKey: "",
+                pendingFocusRowKey: "",
                 copyFeedback: "",
                 toasts: [],
                 lastAutoCopiedOutput: ""
@@ -442,6 +457,7 @@
                 state.originalStandardRowKeys = state.standardRowKeys.slice();
                 state.previewColumnWidths = {};
                 state.previewColumnMenuKey = "";
+                state.previewColumnMenuWidth = defaultState.previewColumnMenuWidth;
                 state.columnConfigs = [];
                 state.rowConfigs = [];
                 state.previewPage = 1;
@@ -645,7 +661,14 @@
                             filterValueTo: column.filterValueTo,
                             bulkFillMode: column.bulkFillMode,
                             bulkFillValue: column.bulkFillValue,
-                            bulkFillAuxValue: column.bulkFillAuxValue
+                            bulkFillAuxValue: column.bulkFillAuxValue,
+                            mergeTargetName: column.mergeTargetName,
+                            mergeSeparator: column.mergeSeparator,
+                            mergeSourceKeys: Array.isArray(column.mergeSourceKeys) ? column.mergeSourceKeys.slice() : [],
+                            mergeRemoveOriginals: column.mergeRemoveOriginals,
+                            splitDelimiter: column.splitDelimiter,
+                            splitTargetNames: column.splitTargetNames,
+                            splitRemoveOriginal: column.splitRemoveOriginal
                         };
                     });
 
@@ -668,7 +691,14 @@
                             filterValueTo: previous ? previous.filterValueTo : "",
                             bulkFillMode: previous ? previous.bulkFillMode : "set",
                             bulkFillValue: previous ? previous.bulkFillValue : "",
-                            bulkFillAuxValue: previous ? previous.bulkFillAuxValue : ""
+                            bulkFillAuxValue: previous ? previous.bulkFillAuxValue : "",
+                            mergeTargetName: previous ? previous.mergeTargetName : column.header,
+                            mergeSeparator: previous ? previous.mergeSeparator : " ",
+                            mergeSourceKeys: previous && Array.isArray(previous.mergeSourceKeys) ? previous.mergeSourceKeys.slice() : [column.key],
+                            mergeRemoveOriginals: previous ? previous.mergeRemoveOriginals : false,
+                            splitDelimiter: previous ? previous.splitDelimiter : ",",
+                            splitTargetNames: previous ? previous.splitTargetNames : "",
+                            splitRemoveOriginal: previous ? previous.splitRemoveOriginal : false
                         };
                     });
 
@@ -686,7 +716,14 @@
                         filterValueTo: column.filterValueTo || "",
                         bulkFillMode: column.bulkFillMode || "set",
                         bulkFillValue: column.bulkFillValue || "",
-                        bulkFillAuxValue: column.bulkFillAuxValue || ""
+                        bulkFillAuxValue: column.bulkFillAuxValue || "",
+                        mergeTargetName: column.mergeTargetName || column.header,
+                        mergeSeparator: column.mergeSeparator === undefined ? " " : column.mergeSeparator,
+                        mergeSourceKeys: Array.isArray(column.mergeSourceKeys) && column.mergeSourceKeys.length ? column.mergeSourceKeys.slice() : [column.key],
+                        mergeRemoveOriginals: Boolean(column.mergeRemoveOriginals),
+                        splitDelimiter: column.splitDelimiter === undefined ? "," : column.splitDelimiter,
+                        splitTargetNames: column.splitTargetNames || "",
+                        splitRemoveOriginal: Boolean(column.splitRemoveOriginal)
                     };
                 });
             }, { immediate: true });
@@ -1081,15 +1118,91 @@
                 state.standardRows[rowIndex][columnIndex] = nextValue;
             }
 
+            function focusPreviewHeaderByColumnKey(columnKey) {
+                if (!columnKey) {
+                    return;
+                }
+
+                nextTick(function () {
+                    const target = findFocusableElement('[data-column-key="' + escapeSelectorToken(columnKey) + '"] .preview-header-input');
+                    if (target) {
+                        target.focus();
+                        if (typeof target.select === "function") {
+                            target.select();
+                        }
+                        target.scrollIntoView({
+                            block: "nearest",
+                            inline: "center"
+                        });
+                    }
+                });
+            }
+
+            function focusPreviewCellByKeys(rowKey, columnKey) {
+                if (!rowKey || !columnKey) {
+                    return;
+                }
+
+                nextTick(function () {
+                    const target = findFocusableElement(
+                        '[data-row-key="' + escapeSelectorToken(rowKey) + '"] [data-cell-column-key="' + escapeSelectorToken(columnKey) + '"]'
+                    );
+                    if (target) {
+                        target.focus();
+                        if (typeof target.select === "function") {
+                            target.select();
+                        }
+                        target.scrollIntoView({
+                            block: "nearest",
+                            inline: "center"
+                        });
+                    }
+                });
+            }
+
             function addStandardRow() {
-                state.standardRows.push(Array.from({ length: state.standardHeaders.length }, function () {
+                const newRow = Array.from({ length: state.standardHeaders.length }, function () {
                     return "";
-                }));
-                state.standardRowKeys.push(createRowKey());
+                });
+                const newRowKey = createRowKey();
+
+                state.standardRows.push(newRow);
+                state.standardRowKeys.push(newRowKey);
                 state.rowConfigs.push({
-                    key: state.standardRowKeys[state.standardRowKeys.length - 1],
+                    key: newRowKey,
                     enabled: true
                 });
+
+                state.previewPage = Math.max(1, Math.ceil(state.standardRows.length / state.previewPageSize));
+                state.pendingFocusRowKey = newRowKey;
+                state.pendingFocusColumnKey = state.standardColumnKeys[0] || "";
+                focusPreviewCellByKeys(newRowKey, state.standardColumnKeys[0] || "");
+            }
+
+            function duplicateStandardRow(rowIndex) {
+                if (rowIndex < 0 || rowIndex >= state.standardRows.length) {
+                    return;
+                }
+
+                const duplicatedRow = (state.standardRows[rowIndex] || []).slice();
+                const duplicatedKey = createRowKey();
+                const sourceRowKey = state.standardRowKeys[rowIndex];
+                const sourceConfig = state.rowConfigs.find(function (rowConfig) {
+                    return rowConfig.key === sourceRowKey;
+                });
+
+                state.standardRows.splice(rowIndex + 1, 0, duplicatedRow);
+                state.standardRowKeys.splice(rowIndex + 1, 0, duplicatedKey);
+                state.rowConfigs.splice(rowIndex + 1, 0, {
+                    key: duplicatedKey,
+                    enabled: sourceConfig ? sourceConfig.enabled : true
+                });
+
+                state.previewPage = Math.max(1, Math.ceil((rowIndex + 2) / state.previewPageSize));
+                state.pendingFocusRowKey = duplicatedKey;
+                state.pendingFocusColumnKey = state.standardColumnKeys[0] || "";
+                focusPreviewCellByKeys(duplicatedKey, state.standardColumnKeys[0] || "");
+                pushToast("Linha duplicada.", "success");
             }
 
             function toggleStandardRowVisibility(rowIndex) {
@@ -1165,12 +1278,16 @@
             function addStandardColumn() {
                 const nextIndex = state.standardHeaders.length;
                 const nextHeader = "Col" + (nextIndex + 1);
+                const newColumnKey = createColumnKey();
 
                 state.standardHeaders.push(nextHeader);
-                state.standardColumnKeys.push(createColumnKey());
+                state.standardColumnKeys.push(newColumnKey);
                 state.standardRows.forEach(function (row) {
                     row.push("");
                 });
+
+                state.pendingFocusColumnKey = newColumnKey;
+                focusPreviewHeaderByColumnKey(newColumnKey);
             }
 
             function moveStandardColumnByKey(draggedKey, targetKey) {
@@ -1228,6 +1345,35 @@
                 return targetColumn ? targetColumn.enabled : true;
             }
 
+            function insertStandardColumnAt(insertIndex, header, initialValues) {
+                const safeInsertIndex = Math.max(0, Math.min(insertIndex, state.standardHeaders.length));
+                const newColumnKey = createColumnKey();
+                const nextHeader = header || ("Col" + (safeInsertIndex + 1));
+
+                state.standardHeaders.splice(safeInsertIndex, 0, nextHeader);
+                state.standardColumnKeys.splice(safeInsertIndex, 0, newColumnKey);
+                state.standardRows.forEach(function (row, rowIndex) {
+                    const nextValue = Array.isArray(initialValues) && rowIndex < initialValues.length ? initialValues[rowIndex] : "";
+                    row.splice(safeInsertIndex, 0, nextValue);
+                });
+
+                return newColumnKey;
+            }
+
+            function removeStandardColumnAt(removeIndex) {
+                if (removeIndex < 0 || removeIndex >= state.standardHeaders.length) {
+                    return;
+                }
+
+                const removedKey = state.standardColumnKeys[removeIndex];
+                state.standardHeaders.splice(removeIndex, 1);
+                state.standardColumnKeys.splice(removeIndex, 1);
+                state.standardRows.forEach(function (row) {
+                    row.splice(removeIndex, 1);
+                });
+                delete state.previewColumnWidths[removedKey];
+            }
+
             function getColumnConfigByIndex(columnIndex) {
                 const columnKey = state.standardColumnKeys[columnIndex];
                 return state.columnConfigs.find(function (column) {
@@ -1246,8 +1392,118 @@
                     bulkFillAuxValue: "",
                     filterOperator: "",
                     filterValue: "",
-                    filterValueTo: ""
+                    filterValueTo: "",
+                    mergeTargetName: "",
+                    mergeSeparator: " ",
+                    mergeSourceKeys: [],
+                    mergeRemoveOriginals: false,
+                    splitDelimiter: ",",
+                    splitTargetNames: "",
+                    splitRemoveOriginal: false
                 };
+            }
+
+            function applyColumnSplit(columnIndex) {
+                const column = getColumnConfigByIndex(columnIndex);
+                if (!column) {
+                    return;
+                }
+
+                const delimiter = column.splitDelimiter;
+                if (!delimiter) {
+                    pushToast("Informe o delimitador para dividir a coluna.", "warning");
+                    return;
+                }
+
+                const splitValues = state.standardRows.map(function (row) {
+                    const rawValue = row[columnIndex] === undefined || row[columnIndex] === null ? "" : String(row[columnIndex]);
+                    return rawValue.split(delimiter);
+                });
+                const partsCount = splitValues.reduce(function (max, parts) {
+                    return Math.max(max, parts.length);
+                }, 0);
+
+                if (!partsCount || partsCount === 1) {
+                    pushToast("Nenhuma divisao encontrada com o delimitador informado.", "warning");
+                    return;
+                }
+
+                const targetNames = String(column.splitTargetNames || "")
+                    .split(",")
+                    .map(function (item) {
+                        return item.trim();
+                    })
+                    .filter(Boolean);
+                const sourceHeader = state.standardHeaders[columnIndex] || "Coluna";
+                const insertedKeys = [];
+
+                for (let partIndex = 0; partIndex < partsCount; partIndex += 1) {
+                    const headerName = targetNames[partIndex] || (sourceHeader + "_" + (partIndex + 1));
+                    const partValues = splitValues.map(function (parts) {
+                        return partIndex < parts.length ? parts[partIndex] : "";
+                    });
+                    insertedKeys.push(insertStandardColumnAt(columnIndex + partIndex + 1, headerName, partValues));
+                }
+
+                if (column.splitRemoveOriginal) {
+                    removeStandardColumnAt(columnIndex);
+                }
+
+                state.previewColumnMenuKey = "";
+                const focusKey = insertedKeys[0] || "";
+                state.pendingFocusColumnKey = focusKey;
+                focusPreviewHeaderByColumnKey(focusKey);
+                pushToast("Coluna dividida com sucesso.", "success");
+            }
+
+            function applyColumnMerge(columnIndex) {
+                const column = getColumnConfigByIndex(columnIndex);
+                if (!column) {
+                    return;
+                }
+
+                const mergeSourceKeys = Array.isArray(column.mergeSourceKeys)
+                    ? column.mergeSourceKeys.filter(function (key) {
+                        return state.standardColumnKeys.indexOf(key) !== -1;
+                    })
+                    : [];
+
+                if (!mergeSourceKeys.length) {
+                    pushToast("Selecione ao menos uma coluna para mesclar.", "warning");
+                    return;
+                }
+
+                const mergeIndexes = mergeSourceKeys.map(function (key) {
+                    return state.standardColumnKeys.indexOf(key);
+                }).filter(function (index) {
+                    return index !== -1;
+                });
+
+                const separator = column.mergeSeparator === undefined ? " " : column.mergeSeparator;
+                const targetName = String(column.mergeTargetName || state.standardHeaders[columnIndex] || "Coluna mesclada").trim() || "Coluna mesclada";
+                const mergedValues = state.standardRows.map(function (row) {
+                    return mergeIndexes.map(function (sourceIndex) {
+                        return sourceIndex < row.length ? String(row[sourceIndex] === undefined || row[sourceIndex] === null ? "" : row[sourceIndex]) : "";
+                    }).filter(function (value) {
+                        return value !== "";
+                    }).join(separator);
+                });
+
+                const insertIndex = Math.max.apply(null, mergeIndexes) + 1;
+                const mergedKey = insertStandardColumnAt(insertIndex, targetName, mergedValues);
+
+                if (column.mergeRemoveOriginals) {
+                    mergeIndexes.sort(function (left, right) {
+                        return right - left;
+                    }).forEach(function (sourceIndex) {
+                        removeStandardColumnAt(sourceIndex);
+                    });
+                }
+
+                state.previewColumnMenuKey = "";
+                state.pendingFocusColumnKey = mergedKey;
+                focusPreviewHeaderByColumnKey(mergedKey);
+                pushToast("Colunas mescladas com sucesso.", "success");
             }
 
             function isColumnFiltered(columnIndex) {
@@ -1313,7 +1569,8 @@
 
                 if (event && event.currentTarget) {
                     const rect = event.currentTarget.getBoundingClientRect();
-                    const estimatedMenuHeight = 520;
+                    const estimatedMenuHeight = 720;
+                    const estimatedMenuWidth = state.previewColumnMenuWidth || 320;
                     const openBelowTop = rect.bottom + 8;
                     const openAboveTop = rect.top - estimatedMenuHeight - 8;
                     const shouldOpenAbove = openBelowTop + estimatedMenuHeight > window.innerHeight - 16 && rect.top > window.innerHeight * 0.35;
@@ -1321,7 +1578,7 @@
                     state.previewColumnMenuTop = shouldOpenAbove
                         ? Math.max(16, openAboveTop)
                         : Math.max(16, Math.min(window.innerHeight - 24, openBelowTop));
-                    state.previewColumnMenuLeft = Math.max(16, Math.min(window.innerWidth - 304, rect.right - 288));
+                    state.previewColumnMenuLeft = Math.max(16, Math.min(window.innerWidth - estimatedMenuWidth - 16, rect.right - (estimatedMenuWidth - 32)));
                     state.previewColumnMenuMaxHeight = Math.max(220, window.innerHeight - state.previewColumnMenuTop - 16);
                 }
 
@@ -1369,6 +1626,7 @@
                     position: "fixed",
                     top: state.previewColumnMenuTop + "px",
                     left: state.previewColumnMenuLeft + "px",
+                    width: state.previewColumnMenuWidth + "px",
                     maxHeight: state.previewColumnMenuMaxHeight + "px"
                 };
             }
@@ -1600,12 +1858,38 @@
 
             onMounted(function () {
                 function onKeyDown(event) {
+                    const activeTag = document.activeElement && document.activeElement.tagName
+                        ? document.activeElement.tagName.toLowerCase()
+                        : "";
+                    const isEditableTarget = activeTag === "input"
+                        || activeTag === "textarea"
+                        || activeTag === "select"
+                        || (document.activeElement && document.activeElement.isContentEditable);
+
                     if (event.key === "Escape" && state.sidebarOpen) {
                         state.sidebarOpen = false;
                     }
 
                     if (event.key === "Escape") {
                         state.previewColumnMenuKey = "";
+                    }
+
+                    if ((event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey) {
+                        if (event.key.toLowerCase() === "r") {
+                            event.preventDefault();
+                            addStandardRow();
+                            return;
+                        }
+
+                        if (event.key.toLowerCase() === "c") {
+                            event.preventDefault();
+                            addStandardColumn();
+                            return;
+                        }
+                    }
+
+                    if (isEditableTarget) {
+                        return;
                     }
                 }
 
@@ -1648,6 +1932,7 @@
                 standardObject,
                 previewRows,
                 previewMeta,
+                availableColumns,
                 paginatedPreviewRows,
                 previewPageCount,
                 previewRangeLabel,
@@ -1684,10 +1969,13 @@
                 updateStandardHeader,
                 updateStandardCell,
                 addStandardRow,
+                duplicateStandardRow,
                 toggleStandardRowVisibility,
                 isStandardRowVisible,
                 moveStandardRow,
                 addStandardColumn,
+                applyColumnMerge,
+                applyColumnSplit,
                 toggleStandardColumnVisibility,
                 isStandardColumnVisible,
                 resetPreviewChanges,
@@ -1964,10 +2252,10 @@
                                             <div class="input-group input-group-sm preview-search-group" style="width:400px">
                                                 <span class="input-group-text"><i class="fas fa-search" aria-hidden="true"></i></span>
                                                 <input class="form-control" v-model="state.previewSearch" placeholder="Buscar nas linhas">
-                                                <button class="btn btn-outline-primary" type="button" @click="addStandardColumn" title="Adicionar coluna">
+                                                <button class="btn btn-outline-primary" type="button" @click="addStandardColumn" title="Adicionar coluna (Ctrl+Shift+C)">
                                                     <i class="fas fa-columns" aria-hidden="true"></i>
                                                 </button>
-                                                <button class="btn btn-outline-primary" type="button" @click="addStandardRow" title="Adicionar linha">
+                                                <button class="btn btn-outline-primary" type="button" @click="addStandardRow" title="Adicionar linha (Ctrl+Shift+R)">
                                                     <i class="fas fa-plus" aria-hidden="true"></i>
                                                 </button>
                                             </div>
@@ -1978,7 +2266,7 @@
                                                 <thead>
                                                     <tr>
                                                         <th class="preview-actions-col">Acoes</th>
-                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]" :style="getPreviewColumnStyle(headerIndex)" :class="{ 'preview-column-filtered': isColumnFiltered(headerIndex), 'preview-column-hidden': !isStandardColumnVisible(headerIndex) }">
+                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]" :style="getPreviewColumnStyle(headerIndex)" :class="{ 'preview-column-filtered': isColumnFiltered(headerIndex), 'preview-column-hidden': !isStandardColumnVisible(headerIndex) }" :data-column-key="state.standardColumnKeys[headerIndex]">
                                                             <div
                                                                 class="preview-header-cell preview-column-menu-wrap"
                                                                 draggable="true"
@@ -1996,7 +2284,7 @@
                                                                         <i class="fas fa-grip-vertical" aria-hidden="true"></i>
                                                                     </button>
                                                                     <input
-                                                                        class="form-control form-control-sm preview-input"
+                                                                        class="form-control form-control-sm preview-input preview-header-input"
                                                                         :value="header"
                                                                         @input="updateStandardHeader(headerIndex, $event.target.value)"
                                                                         placeholder="Nome da coluna"
@@ -2017,6 +2305,7 @@
                                                     <tr
                                                         v-for="rowItem in paginatedPreviewRows"
                                                         :key="rowItem.key"
+                                                        :data-row-key="rowItem.key"
                                                         :class="{ 'preview-row-hidden': !isStandardRowVisible(rowItem.rowIndex) }"
                                                         draggable="true"
                                                         @dragstart="startPreviewRowDrag(rowItem.rowIndex)"
@@ -2044,11 +2333,15 @@
                                                                 >
                                                                     <i :class="isStandardRowVisible(rowItem.rowIndex) ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
                                                                 </button>
+                                                                <button class="btn btn-outline-secondary" type="button" @click="duplicateStandardRow(rowItem.rowIndex)" title="Duplicar linha">
+                                                                    <i class="fas fa-clone" aria-hidden="true"></i>
+                                                                </button>
                                                             </div>
                                                         </td>
                                                         <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex" :style="getPreviewColumnStyle(cellIndex)" :class="{ 'preview-column-filtered': isColumnFiltered(cellIndex), 'preview-column-hidden': !isStandardColumnVisible(cellIndex) }">
                                                             <input
                                                                 class="form-control form-control-sm preview-input"
+                                                                :data-cell-column-key="state.standardColumnKeys[cellIndex]"
                                                                 :value="cellIndex < rowItem.row.length ? rowItem.row[cellIndex] : ''"
                                                                 @input="updateStandardCell(rowItem.rowIndex, cellIndex, $event.target.value)"
                                                                 placeholder="-"
@@ -2188,6 +2481,32 @@
                                                                         <input v-if="getMenuColumnConfig().bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().bulkFillAuxValue" placeholder="Substituir por">
                                                                         <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(getMenuColumnIndex())">Aplicar</button>
                                                                     </div>
+                    <div class="preview-column-menu-group mt-3">
+                        <div class="small fw-semibold mb-2">Mesclar colunas</div>
+                        <div class="preview-menu-checkbox-list mb-2">
+                            <label v-for="column in availableColumns" :key="'merge-' + column.key" class="preview-menu-checkbox-item">
+                                <input class="form-check-input" type="checkbox" :value="column.key" v-model="getMenuColumnConfig().mergeSourceKeys">
+                                <span>{{ column.header || 'Coluna sem nome' }}</span>
+                            </label>
+                        </div>
+                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeTargetName" placeholder="Nome da nova coluna">
+                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeSeparator" placeholder="Separador">
+                        <label class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().mergeRemoveOriginals">
+                            <span class="form-check-label">Remover colunas originais</span>
+                        </label>
+                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnMerge(getMenuColumnIndex())">Mesclar</button>
+                    </div>
+                    <div class="preview-column-menu-group mt-3">
+                        <div class="small fw-semibold mb-2">Dividir coluna</div>
+                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitDelimiter" placeholder="Delimitador">
+                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitTargetNames" placeholder="Nomes das novas colunas, separados por virgula">
+                        <label class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().splitRemoveOriginal">
+                            <span class="form-check-label">Remover coluna original</span>
+                        </label>
+                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnSplit(getMenuColumnIndex())">Dividir</button>
+                    </div>
                     <div v-if="showColumnTypeControl" class="preview-column-menu-group mt-3">
                         <div class="small fw-semibold mb-2">Tipo da coluna</div>
                         <select class="form-select form-select-sm" v-model="getMenuColumnConfig()[currentTypeFieldKey]">
