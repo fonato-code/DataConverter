@@ -685,17 +685,17 @@
 
                                         <div v-if="isXmlOutput" class="mb-3">
                                             <label for="xml-root-tag" class="form-label fw-semibold">Root Row Tag Name</label>
-                                            <input id="xml-root-tag" class="form-control" v-model="state.xmlRootTagName" placeholder="rows">
+                                            <input id="xml-root-tag" class="form-control form-control-sm" v-model="state.xmlRootTagName" placeholder="rows">
                                         </div>
 
                                         <div v-if="isXmlOutput" class="mb-3">
                                             <label for="xml-row-tag" class="form-label fw-semibold">Row Tag Name</label>
-                                            <input id="xml-row-tag" class="form-control" v-model="state.xmlRowTagName" placeholder="row">
+                                            <input id="xml-row-tag" class="form-control form-control-sm" v-model="state.xmlRowTagName" placeholder="row">
                                         </div>
 
                                         <div v-if="isSqlOutput">
                                             <label for="sql-table-name" class="form-label fw-semibold">Tabela</label>
-                                            <input id="sql-table-name" class="form-control" v-model="state.sqlTableName" placeholder="ExcelConverter">
+                                            <input id="sql-table-name" class="form-control form-control-sm" v-model="state.sqlTableName" placeholder="ExcelConverter">
                                         </div>
 
                                         <div v-if="isSqlOutput" class="form-check form-switch mt-3">
