@@ -115,7 +115,12 @@
     });
 
     window.ExcelConverterInputParsers.json = function (context) {
-        const parsed = JSON.parse(context.input);
+        let parsed;
+        try {
+            parsed = JSON.parse(context.input);
+        } catch (error) {
+            throw new Error("JSON invalido: " + error.message);
+        }
 
         if (Array.isArray(parsed)) {
             if (!parsed.length) {

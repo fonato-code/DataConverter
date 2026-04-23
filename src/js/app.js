@@ -5,6 +5,7 @@
     const inputParsers = window.ExcelConverterInputParsers || {};
     const outputFormats = window.ExcelConverterOutputFormats || [];
     const outputBuilders = window.ExcelConverterOutputBuilders || {};
+    const PREFERENCES_STORAGE_KEY = "excelconverter.preferences.v1";
 
     function normalizeHeader(value, index, transform) {
         const fallback = "column_" + (index + 1);
@@ -109,9 +110,47 @@
         });
     }
 
+    function loadPreferences(defaultState) {
+        try {
+            const saved = JSON.parse(window.localStorage.getItem(PREFERENCES_STORAGE_KEY) || "{}");
+            return Object.assign({}, defaultState, saved, {
+                input: defaultState.input,
+                columnConfigs: defaultState.columnConfigs,
+                draggedColumnKey: defaultState.draggedColumnKey,
+                copyFeedback: defaultState.copyFeedback,
+                toasts: defaultState.toasts,
+                lastAutoCopiedOutput: defaultState.lastAutoCopiedOutput
+            });
+        } catch (_error) {
+            return defaultState;
+        }
+    }
+
+    function getOutputFileExtension(format) {
+        const extensionMap = {
+            json: "json",
+            "json-column-arrays": "json",
+            "json-row-arrays": "json",
+            "json-dictionary": "json",
+            ndjson: "ndjson",
+            yaml: "yaml",
+            "markdown-table": "md",
+            "html-table": "html",
+            sql: "sql",
+            php: "php",
+            "xml-properties": "xml",
+            "xml-nodes": "xml",
+            avro: "json",
+            csv: "csv",
+            tsv: "tsv"
+        };
+
+        return extensionMap[format] || "txt";
+    }
+
     createApp({
         setup() {
-            const state = reactive({
+            const defaultState = {
                 theme: "dark",
                 input: "",
                 inputFormat: "input-default",
@@ -136,13 +175,40 @@
                 copyFeedback: "",
                 toasts: [],
                 lastAutoCopiedOutput: ""
-            });
+            };
+
+            const state = reactive(loadPreferences(defaultState));
 
             watch(function () {
                 return state.theme;
             }, function (theme) {
                 document.documentElement.setAttribute("data-theme", theme);
             }, { immediate: true });
+
+            watch(function () {
+                return {
+                    theme: state.theme,
+                    inputFormat: state.inputFormat,
+                    delimiter: state.delimiter,
+                    decimalSign: state.decimalSign,
+                    firstRowIsHeader: state.firstRowIsHeader,
+                    headerTransform: state.headerTransform,
+                    outputFormat: state.outputFormat,
+                    xmlRootTagName: state.xmlRootTagName,
+                    xmlRowTagName: state.xmlRowTagName,
+                    sqlTableName: state.sqlTableName,
+                    sqlAddCreateTable: state.sqlAddCreateTable,
+                    sqlAddIdentityInsert: state.sqlAddIdentityInsert,
+                    sqlAddTransaction: state.sqlAddTransaction,
+                    sqlAddTruncate: state.sqlAddTruncate,
+                    sqlConvertEmptyToNull: state.sqlConvertEmptyToNull,
+                    autoCopyOutput: state.autoCopyOutput,
+                    inputSectionCollapsed: state.inputSectionCollapsed,
+                    outputSectionCollapsed: state.outputSectionCollapsed
+                };
+            }, function (preferences) {
+                window.localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+            }, { deep: true });
 
             const statusMessage = computed(function () {
                 if (!state.input.trim()) {
@@ -166,33 +232,53 @@
                 };
             });
 
-            const inputFormatError = computed(function () {
+            const parsedInputResult = computed(function () {
                 if (!state.input.trim()) {
-                    return "";
+                    return {
+                        data: {
+                            headers: [],
+                            dataRows: []
+                        },
+                        error: ""
+                    };
                 }
 
                 const parser = inputParsers[state.inputFormat];
                 if (!parser) {
-                    return "Formato de input nao suportado.";
+                    return {
+                        data: {
+                            headers: [],
+                            dataRows: []
+                        },
+                        error: "Formato de input nao suportado."
+                    };
                 }
 
                 try {
-                    parser({
-                        input: state.input,
-                        state: state,
-                        utils: {
-                            buildDefaultHeaders: buildDefaultHeaders,
-                            normalizeHeader: normalizeHeader
-                        }
-                    });
-                    return "";
+                    return {
+                        data: parser({
+                            input: state.input,
+                            state: state,
+                            utils: {
+                                buildDefaultHeaders: buildDefaultHeaders,
+                                normalizeHeader: normalizeHeader
+                            }
+                        }),
+                        error: ""
+                    };
                 } catch (error) {
-                    const currentInputFormat = inputFormats.find(function (format) {
-                        return format.value === state.inputFormat;
-                    });
-                    const formatLabel = currentInputFormat ? currentInputFormat.label : state.inputFormat;
-                    return "O texto informado nao corresponde ao formato de input selecionado: " + formatLabel + ".";
+                    return {
+                        data: {
+                            headers: [],
+                            dataRows: []
+                        },
+                        error: error && error.message ? error.message : "Erro ao ler o input."
+                    };
                 }
+            });
+
+            const inputFormatError = computed(function () {
+                return parsedInputResult.value.error;
             });
 
             watch(function () {
@@ -204,36 +290,26 @@
             });
 
             const standardObject = computed(function () {
-                if (!state.input.trim()) {
-                    return {
-                        headers: [],
-                        dataRows: []
-                    };
+                return parsedInputResult.value.data;
+            });
+
+            const previewRows = computed(function () {
+                return standardObject.value.dataRows.slice(0, 50);
+            });
+
+            const previewMeta = computed(function () {
+                const rowCount = standardObject.value.dataRows.length;
+                const columnCount = standardObject.value.headers.length;
+
+                if (!rowCount && !columnCount) {
+                    return "Sem dados carregados.";
                 }
 
-                const parser = inputParsers[state.inputFormat];
-                if (!parser) {
-                    return {
-                        headers: [],
-                        dataRows: []
-                    };
+                if (rowCount > previewRows.value.length) {
+                    return "Exibindo " + previewRows.value.length + " de " + rowCount + " linhas e " + columnCount + " colunas.";
                 }
 
-                try {
-                    return parser({
-                        input: state.input,
-                        state: state,
-                        utils: {
-                            buildDefaultHeaders: buildDefaultHeaders,
-                            normalizeHeader: normalizeHeader
-                        }
-                    });
-                } catch (_error) {
-                    return {
-                        headers: [],
-                        dataRows: []
-                    };
-                }
+                return rowCount + " linhas e " + columnCount + " colunas.";
             });
 
             const availableColumns = computed(function () {
@@ -435,6 +511,27 @@
                 }, 1600);
             }
 
+            function downloadOutput() {
+                const content = output.value;
+                if (!content) {
+                    pushToast("Nao ha conteudo para baixar.", "warning");
+                    return;
+                }
+
+                const extension = getOutputFileExtension(state.outputFormat);
+                const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement("a");
+
+                link.href = url;
+                link.download = "excelconverter-output." + extension;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+                pushToast("Arquivo gerado para download.", "success");
+            }
+
             watch(function () {
                 return {
                     autoCopyOutput: state.autoCopyOutput,
@@ -546,6 +643,9 @@
                 state,
                 statusMessage,
                 inputFormatError,
+                standardObject,
+                previewRows,
+                previewMeta,
                 output,
                 visibleOutput,
                 isXmlOutput,
@@ -563,6 +663,7 @@
                 toggleSection,
                 toggleTheme,
                 copyOutput,
+                downloadOutput,
                 dismissToast
             };
         },
@@ -608,25 +709,31 @@
                                         </div>
                                     </button>
 
-                                    <div v-show="!state.inputSectionCollapsed && showDefaultInputConfig" class="mt-3">
-                                        <div
-                                            v-for="field in inputConfig"
-                                            :key="field.id"
-                                            :class="field.type === 'checkbox' ? 'form-check form-switch mb-3' : 'mb-3'"
-                                        >
-                                            <template v-if="field.type === 'select'">
-                                                <label :for="field.id" class="form-label fw-semibold">{{ field.label }}</label>
-                                                <select :id="field.id" class="form-select form-select-sm" v-model="state[field.id]">
-                                                    <option v-for="option in field.options" :key="option.value" :value="option.value">
-                                                        {{ option.label }}
-                                                    </option>
-                                                </select>
-                                            </template>
+                                    <div v-show="!state.inputSectionCollapsed" class="mt-3">
+                                        <div v-if="showDefaultInputConfig">
+                                            <div
+                                                v-for="field in inputConfig"
+                                                :key="field.id"
+                                                :class="field.type === 'checkbox' ? 'form-check form-switch mb-3' : 'mb-3'"
+                                            >
+                                                <template v-if="field.type === 'select'">
+                                                    <label :for="field.id" class="form-label fw-semibold">{{ field.label }}</label>
+                                                    <select :id="field.id" class="form-select form-select-sm" v-model="state[field.id]">
+                                                        <option v-for="option in field.options" :key="option.value" :value="option.value">
+                                                            {{ option.label }}
+                                                        </option>
+                                                    </select>
+                                                </template>
 
-                                            <template v-else-if="field.type === 'checkbox'">
-                                                <input :id="field.id" class="form-check-input" type="checkbox" role="switch" v-model="state[field.id]">
-                                                <label class="form-check-label fw-semibold" :for="field.id">{{ field.label }}</label>
-                                            </template>
+                                                <template v-else-if="field.type === 'checkbox'">
+                                                    <input :id="field.id" class="form-check-input" type="checkbox" role="switch" v-model="state[field.id]">
+                                                    <label class="form-check-label fw-semibold" :for="field.id">{{ field.label }}</label>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        <div v-else class="small text-secondary">
+                                            Este formato de input nao usa as configuracoes de delimiter, decimal sign e header.
                                         </div>
                                     </div>
                                 </div>
@@ -747,12 +854,53 @@
                                                 </select>
                                             </div>
                                         </div>
+                                        <div
+                                            class="status-chip mb-3"
+                                            :class="inputFormatError ? 'error' : statusMessage.tone"
+                                        >
+                                            {{ inputFormatError || statusMessage.text }}
+                                        </div>
                                         <textarea
                                             class="form-control editor-textarea"
                                             v-model="state.input"
                                             placeholder="Cole aqui dados copiados do Excel, CSV ou TSV"
                                             spellcheck="false"
                                         ></textarea>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="col-12">
+                                <div class="panel-card preview-panel h-100">
+                                    <div class="card-body p-4">
+                                        <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+                                            <div>
+                                                <div class="editor-label mb-1">Preview</div>
+                                                <h3 class="h5 mb-0">Objeto padrao</h3>
+                                            </div>
+                                            <div class="small text-secondary">{{ previewMeta }}</div>
+                                        </div>
+
+                                        <div v-if="standardObject.headers.length" class="preview-table-wrap">
+                                            <table class="table table-sm align-middle mb-0 preview-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th v-for="header in standardObject.headers" :key="header">{{ header }}</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="(row, rowIndex) in previewRows" :key="rowIndex">
+                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowIndex + '-' + cellIndex">
+                                                            {{ cellIndex < row.length ? row[cellIndex] : '' }}
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div v-else class="preview-empty">
+                                            O objeto padrao sera exibido aqui assim que o input for lido com sucesso.
+                                        </div>
                                     </div>
                                 </div>
                             </section>
@@ -777,6 +925,9 @@
                                                             :class="state.copyFeedback === 'Copiado' ? 'fas fa-check' : state.copyFeedback === 'Falha ao copiar' ? 'fas fa-exclamation-triangle' : state.copyFeedback === 'Sem conteudo' ? 'fas fa-ban' : 'fas fa-copy'"
                                                             aria-hidden="true"
                                                         ></i>
+                                                    </button>
+                                                    <button class="btn btn-outline-primary" type="button" @click="downloadOutput" title="Baixar resultado">
+                                                        <i class="fas fa-download" aria-hidden="true"></i>
                                                     </button>
                                                     <button
                                                         class="btn"

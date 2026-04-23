@@ -18,8 +18,12 @@
             .map(function (line) { return line.trim(); })
             .filter(Boolean);
 
-        const parsed = lines.map(function (line) {
-            return JSON.parse(line);
+        const parsed = lines.map(function (line, index) {
+            try {
+                return JSON.parse(line);
+            } catch (error) {
+                throw new Error("NDJSON invalido na linha " + (index + 1) + ": " + error.message);
+            }
         });
 
         if (!parsed.length) {

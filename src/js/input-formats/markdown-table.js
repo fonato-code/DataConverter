@@ -34,7 +34,7 @@
             .map(parseMarkdownRow);
 
         if (rows.length < 2 || !isSeparatorRow(rows[1])) {
-            throw new Error("Markdown Table invalida");
+            throw new Error("Markdown Table invalida: linha separadora nao encontrada.");
         }
 
         const headers = rows[0].map(function (header, index) {

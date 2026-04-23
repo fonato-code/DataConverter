@@ -17,7 +17,7 @@
         const table = documentNode.querySelector("table");
 
         if (!table) {
-            throw new Error("Tabela HTML nao encontrada");
+            throw new Error("HTML - Tables invalido: nenhuma tag <table> encontrada.");
         }
 
         const rows = Array.from(table.querySelectorAll("tr")).map(function (row) {

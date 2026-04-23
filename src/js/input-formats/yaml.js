@@ -101,7 +101,13 @@
     });
 
     window.ExcelConverterInputParsers.yaml = function (context) {
-        const parsed = window.ExcelConverterYaml.parse(context.input);
+        let parsed;
+        try {
+            parsed = window.ExcelConverterYaml.parse(context.input);
+        } catch (error) {
+            throw new Error("YAML invalido: " + error.message);
+        }
+
         return parseYamlToStandardObject(parsed, context);
     };
 })();

@@ -8,12 +8,18 @@
     });
 
     window.ExcelConverterInputParsers.avro = function (context) {
-        const parsed = JSON.parse(context.input);
+        let parsed;
+        try {
+            parsed = JSON.parse(context.input);
+        } catch (error) {
+            throw new Error("Apache - Avro invalido: " + error.message);
+        }
+
         const schema = parsed && parsed.schema;
         const records = parsed && parsed.records;
 
         if (!schema || !Array.isArray(schema.fields) || !Array.isArray(records)) {
-            throw new Error("Avro invalido");
+            throw new Error("Apache - Avro invalido: esperado objeto com schema.fields e records.");
         }
 
         const rawHeaders = schema.fields.map(function (field, index) {

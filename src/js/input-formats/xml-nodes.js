@@ -11,8 +11,9 @@
         const parser = new DOMParser();
         const xml = parser.parseFromString(context.input, "application/xml");
 
-        if (xml.querySelector("parsererror")) {
-            throw new Error("XML invalido");
+        const parserError = xml.querySelector("parsererror");
+        if (parserError) {
+            throw new Error("XML - Nodes invalido: " + parserError.textContent.trim());
         }
 
         const rows = Array.from(xml.documentElement.children);
