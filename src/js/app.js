@@ -119,6 +119,12 @@
                 standardRows: defaultState.standardRows,
                 standardColumnKeys: defaultState.standardColumnKeys,
                 standardRowKeys: defaultState.standardRowKeys,
+                originalStandardHeaders: defaultState.originalStandardHeaders,
+                originalStandardRows: defaultState.originalStandardRows,
+                originalStandardColumnKeys: defaultState.originalStandardColumnKeys,
+                originalStandardRowKeys: defaultState.originalStandardRowKeys,
+                previewColumnWidths: defaultState.previewColumnWidths,
+                previewColumnMenuKey: defaultState.previewColumnMenuKey,
                 rowConfigs: defaultState.rowConfigs,
                 columnConfigs: defaultState.columnConfigs,
                 draggedColumnKey: defaultState.draggedColumnKey,
@@ -268,6 +274,12 @@
                 standardRows: [],
                 standardColumnKeys: [],
                 standardRowKeys: [],
+                originalStandardHeaders: [],
+                originalStandardRows: [],
+                originalStandardColumnKeys: [],
+                originalStandardRowKeys: [],
+                previewColumnWidths: {},
+                previewColumnMenuKey: "",
                 rowConfigs: [],
                 columnConfigs: [],
                 draggedColumnKey: "",
@@ -415,6 +427,14 @@
                 state.standardRows = cloneRows(data.dataRows);
                 state.standardColumnKeys = createColumnKeys(data.headers.length);
                 state.standardRowKeys = createRowKeys(data.dataRows.length);
+                state.originalStandardHeaders = data.headers.slice();
+                state.originalStandardRows = cloneRows(data.dataRows);
+                state.originalStandardColumnKeys = state.standardColumnKeys.slice();
+                state.originalStandardRowKeys = state.standardRowKeys.slice();
+                state.previewColumnWidths = {};
+                state.previewColumnMenuKey = "";
+                state.columnConfigs = [];
+                state.rowConfigs = [];
                 state.previewPage = 1;
             }, { immediate: true });
 
@@ -457,6 +477,65 @@
             const filteredPreviewRows = computed(function () {
                 const search = state.previewSearch.trim().toLowerCase();
                 let rows = availableRows.value;
+
+                function matchesColumnFilter(rowItem, column) {
+                    if (!column.filterOperator) {
+                        return true;
+                    }
+
+                    const rawValue = column.sourceIndex < rowItem.row.length ? rowItem.row[column.sourceIndex] : "";
+                    const stringValue = String(rawValue === undefined || rawValue === null ? "" : rawValue);
+                    const normalizedValue = stringValue.toLowerCase();
+                    const filterValue = String(column.filterValue || "").toLowerCase();
+                    const filterValueTo = String(column.filterValueTo || "").toLowerCase();
+                    const numericValue = Number(stringValue);
+                    const numericFilter = Number(column.filterValue);
+                    const numericFilterTo = Number(column.filterValueTo);
+
+                    if (column.filterOperator === "contains") {
+                        return normalizedValue.indexOf(filterValue) !== -1;
+                    }
+
+                    if (column.filterOperator === "equals") {
+                        return normalizedValue === filterValue;
+                    }
+
+                    if (column.filterOperator === "starts-with") {
+                        return normalizedValue.startsWith(filterValue);
+                    }
+
+                    if (column.filterOperator === "ends-with") {
+                        return normalizedValue.endsWith(filterValue);
+                    }
+
+                    if (column.filterOperator === "empty") {
+                        return normalizedValue.trim() === "";
+                    }
+
+                    if (column.filterOperator === "not-empty") {
+                        return normalizedValue.trim() !== "";
+                    }
+
+                    if (column.filterOperator === "gt") {
+                        return Number.isFinite(numericValue) && Number.isFinite(numericFilter) && numericValue > numericFilter;
+                    }
+
+                    if (column.filterOperator === "lt") {
+                        return Number.isFinite(numericValue) && Number.isFinite(numericFilter) && numericValue < numericFilter;
+                    }
+
+                    if (column.filterOperator === "between") {
+                        return Number.isFinite(numericValue) && Number.isFinite(numericFilter) && Number.isFinite(numericFilterTo) && numericValue >= numericFilter && numericValue <= numericFilterTo;
+                    }
+
+                    return true;
+                }
+
+                rows = rows.filter(function (rowItem) {
+                    return state.columnConfigs.every(function (column) {
+                        return matchesColumnFilter(rowItem, column);
+                    });
+                });
 
                 if (search) {
                     rows = rows.filter(function (rowItem) {
@@ -551,7 +630,13 @@
                             enabled: column.enabled,
                             outputName: column.outputName,
                             sqlType: column.sqlType,
-                            avroType: column.avroType
+                            avroType: column.avroType,
+                            filterOperator: column.filterOperator,
+                            filterValue: column.filterValue,
+                            filterValueTo: column.filterValueTo,
+                            bulkFillMode: column.bulkFillMode,
+                            bulkFillValue: column.bulkFillValue,
+                            bulkFillAuxValue: column.bulkFillAuxValue
                         };
                     });
 
@@ -568,7 +653,13 @@
                             enabled: previous ? previous.enabled : true,
                             outputName: previous ? previous.outputName : column.header,
                             sqlType: previous ? previous.sqlType : "",
-                            avroType: previous ? previous.avroType : ""
+                            avroType: previous ? previous.avroType : "",
+                            filterOperator: previous ? previous.filterOperator : "",
+                            filterValue: previous ? previous.filterValue : "",
+                            filterValueTo: previous ? previous.filterValueTo : "",
+                            bulkFillMode: previous ? previous.bulkFillMode : "set",
+                            bulkFillValue: previous ? previous.bulkFillValue : "",
+                            bulkFillAuxValue: previous ? previous.bulkFillAuxValue : ""
                         };
                     });
 
@@ -580,7 +671,13 @@
                         enabled: column.enabled,
                         outputName: column.outputName || column.header,
                         sqlType: column.sqlType || "",
-                        avroType: column.avroType || ""
+                        avroType: column.avroType || "",
+                        filterOperator: column.filterOperator || "",
+                        filterValue: column.filterValue || "",
+                        filterValueTo: column.filterValueTo || "",
+                        bulkFillMode: column.bulkFillMode || "set",
+                        bulkFillValue: column.bulkFillValue || "",
+                        bulkFillAuxValue: column.bulkFillAuxValue || ""
                     };
                 });
             }, { immediate: true });
@@ -873,6 +970,14 @@
             });
 
             watch(function () {
+                return state.columnConfigs.map(function (column) {
+                    return [column.filterOperator, column.filterValue, column.filterValueTo].join("|");
+                }).join("||");
+            }, function () {
+                state.previewPage = 1;
+            });
+
+            watch(function () {
                 return previewPageCount.value;
             }, function (count) {
                 if (state.previewPage > count) {
@@ -1149,6 +1254,107 @@
                 pushToast("Colunas duplicadas foram ajustadas.", "success");
             }
 
+            function resetPreviewChanges() {
+                state.standardHeaders = state.originalStandardHeaders.slice();
+                state.standardRows = cloneRows(state.originalStandardRows);
+                state.standardColumnKeys = state.originalStandardColumnKeys.slice();
+                state.standardRowKeys = state.originalStandardRowKeys.slice();
+                state.previewColumnWidths = {};
+                state.previewColumnMenuKey = "";
+                state.columnConfigs = [];
+                state.rowConfigs = [];
+                state.previewPage = 1;
+                pushToast("Preview restaurado para o estado original.", "success");
+            }
+
+            function togglePreviewColumnMenu(columnKey) {
+                state.previewColumnMenuKey = state.previewColumnMenuKey === columnKey ? "" : columnKey;
+            }
+
+            function startPreviewColumnResize(columnKey, event) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const headerCell = event.target.closest("th");
+                const initialWidth = headerCell ? headerCell.getBoundingClientRect().width : 180;
+                const startX = event.clientX;
+                const currentWidth = state.previewColumnWidths[columnKey] || initialWidth;
+
+                function onMove(moveEvent) {
+                    const nextWidth = Math.max(120, currentWidth + (moveEvent.clientX - startX));
+                    state.previewColumnWidths[columnKey] = nextWidth;
+                }
+
+                function onUp() {
+                    window.removeEventListener("mousemove", onMove);
+                    window.removeEventListener("mouseup", onUp);
+                }
+
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
+            }
+
+            function getPreviewColumnStyle(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                const width = state.previewColumnWidths[columnKey];
+                if (!width) {
+                    return {};
+                }
+
+                return {
+                    width: width + "px",
+                    minWidth: width + "px"
+                };
+            }
+
+            function applyBulkFill(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                const column = state.columnConfigs.find(function (item) {
+                    return item.key === columnKey;
+                });
+
+                if (!column) {
+                    return;
+                }
+
+                const targetRowIndexes = filteredPreviewRows.value.map(function (rowItem) {
+                    return rowItem.rowIndex;
+                });
+
+                targetRowIndexes.forEach(function (rowIndex) {
+                    const currentValue = String(
+                        columnIndex < state.standardRows[rowIndex].length && state.standardRows[rowIndex][columnIndex] !== undefined && state.standardRows[rowIndex][columnIndex] !== null
+                            ? state.standardRows[rowIndex][columnIndex]
+                            : ""
+                    );
+                    let nextValue = currentValue;
+
+                    if (column.bulkFillMode === "set") {
+                        nextValue = column.bulkFillValue;
+                    } else if (column.bulkFillMode === "replace") {
+                        nextValue = currentValue.split(column.bulkFillValue).join(column.bulkFillAuxValue);
+                    } else if (column.bulkFillMode === "prefix") {
+                        nextValue = column.bulkFillValue + currentValue;
+                    } else if (column.bulkFillMode === "suffix") {
+                        nextValue = currentValue + column.bulkFillValue;
+                    } else if (column.bulkFillMode === "uppercase") {
+                        nextValue = currentValue.toUpperCase();
+                    } else if (column.bulkFillMode === "lowercase") {
+                        nextValue = currentValue.toLowerCase();
+                    } else if (column.bulkFillMode === "trim") {
+                        nextValue = currentValue.trim();
+                    } else if (column.bulkFillMode === "clear") {
+                        nextValue = "";
+                    } else if (column.bulkFillMode === "fill-empty") {
+                        nextValue = currentValue.trim() === "" ? column.bulkFillValue : currentValue;
+                    }
+
+                    updateStandardCell(rowIndex, columnIndex, nextValue);
+                });
+
+                pushToast("Preenchimento em massa aplicado na coluna.", "success");
+            }
+
             function moveColumn(draggedKey, targetKey) {
                 if (!draggedKey || !targetKey || draggedKey === targetKey) {
                     return;
@@ -1321,15 +1527,30 @@
                     if (event.key === "Escape" && state.sidebarOpen) {
                         state.sidebarOpen = false;
                     }
+
+                    if (event.key === "Escape") {
+                        state.previewColumnMenuKey = "";
+                    }
+                }
+
+                function onWindowClick(event) {
+                    if (!event.target.closest(".preview-column-menu-wrap")) {
+                        state.previewColumnMenuKey = "";
+                    }
                 }
 
                 window.addEventListener("keydown", onKeyDown);
+                window.addEventListener("click", onWindowClick);
                 state._onWindowKeyDown = onKeyDown;
+                state._onWindowClick = onWindowClick;
             });
 
             onBeforeUnmount(function () {
                 if (state._onWindowKeyDown) {
                     window.removeEventListener("keydown", state._onWindowKeyDown);
+                }
+                if (state._onWindowClick) {
+                    window.removeEventListener("click", state._onWindowClick);
                 }
             });
 
@@ -1382,6 +1603,11 @@
                 addStandardColumn,
                 toggleStandardColumnVisibility,
                 isStandardColumnVisible,
+                resetPreviewChanges,
+                togglePreviewColumnMenu,
+                startPreviewColumnResize,
+                getPreviewColumnStyle,
+                applyBulkFill,
                 applyBulkHeaderRename,
                 dedupeStandardHeaders,
                 copyOutput,
@@ -1635,6 +1861,7 @@
                                             class="form-control editor-textarea"
                                             v-model="state.input"
                                             @paste="handleInputPaste"
+                                            @change="handleInputPaste"
                                             placeholder="Cole aqui dados copiados do Excel, CSV ou TSV"
                                             spellcheck="false"
                                         ></textarea>
@@ -1673,7 +1900,6 @@
                                         </div>
 
                                         <div v-if="standardObject.headers.length" class="preview-toolbar mb-3">
-                                            
                                             <div class="preview-page-size">
                                                 <select class="form-select form-select-sm" v-model.number="state.previewPageSize">
                                                     <option :value="10">10</option>
@@ -1682,6 +1908,9 @@
                                                     <option :value="100">100</option>
                                                 </select>
                                                 <span>linhas por pagina</span>
+                                                <button class="btn btn-outline-secondary btn-sm" type="button" @click="resetPreviewChanges" title="Restaurar estado original">
+                                                    <i class="fas fa-undo" aria-hidden="true"></i>
+                                                </button>
                                             </div>
                                             <div class="input-group input-group-sm preview-search-group" style="width:400px">
                                                 <span class="input-group-text"><i class="fas fa-search" aria-hidden="true"></i></span>
@@ -1700,9 +1929,9 @@
                                                 <thead>
                                                     <tr>
                                                         <th class="preview-actions-col">Acoes</th>
-                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]">
+                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]" :style="getPreviewColumnStyle(headerIndex)">
                                                             <div
-                                                                class="preview-header-cell"
+                                                                class="preview-header-cell preview-column-menu-wrap"
                                                                 draggable="true"
                                                                 @dragstart="startPreviewColumnDrag(state.standardColumnKeys[headerIndex])"
                                                                 @dragover.prevent
@@ -1726,16 +1955,51 @@
                                                                     <button class="btn btn-outline-secondary" type="button" @click="cyclePreviewSort(headerIndex)" title="Ordenar preview">
                                                                         <i :class="getPreviewSortIcon(headerIndex)" aria-hidden="true"></i>
                                                                     </button>
-                                                                    <button
-                                                                        class="btn"
-                                                                        :class="isStandardColumnVisible(headerIndex) ? 'btn-outline-success' : 'btn-outline-secondary'"
-                                                                        type="button"
-                                                                        @click="toggleStandardColumnVisibility(headerIndex)"
-                                                                        :title="isStandardColumnVisible(headerIndex) ? 'Ocultar coluna no output' : 'Exibir coluna no output'"
-                                                                    >
-                                                                        <i :class="isStandardColumnVisible(headerIndex) ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
+                                                                    <button class="btn btn-outline-secondary" type="button" @click.stop="togglePreviewColumnMenu(state.standardColumnKeys[headerIndex])" title="Opcoes da coluna">
+                                                                        <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
                                                                     </button>
                                                                 </div>
+                                                                <div v-if="state.previewColumnMenuKey === state.standardColumnKeys[headerIndex]" class="preview-column-menu" @click.stop>
+                                                                    <button class="btn btn-sm btn-outline-secondary w-100 mb-3" type="button" @click="toggleStandardColumnVisibility(headerIndex)">
+                                                                        <i :class="isStandardColumnVisible(headerIndex) ? 'fas fa-eye-slash me-2' : 'fas fa-eye me-2'" aria-hidden="true"></i>
+                                                                        {{ isStandardColumnVisible(headerIndex) ? 'Ocultar no output' : 'Exibir no output' }}
+                                                                    </button>
+                                                                    <div class="preview-column-menu-group">
+                                                                        <div class="small fw-semibold mb-2">Preenchimento em massa</div>
+                                                                        <select class="form-select form-select-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillMode">
+                                                                            <option value="set">Definir valor</option>
+                                                                            <option value="replace">Substituir texto</option>
+                                                                            <option value="prefix">Prefixo</option>
+                                                                            <option value="suffix">Sufixo</option>
+                                                                            <option value="uppercase">UPPERCASE</option>
+                                                                            <option value="lowercase">lowercase</option>
+                                                                            <option value="trim">Trim</option>
+                                                                            <option value="clear">Limpar</option>
+                                                                            <option value="fill-empty">Preencher vazios</option>
+                                                                        </select>
+                                                                        <input class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillValue" placeholder="Valor">
+                                                                        <input v-if="state.columnConfigs[headerIndex].bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillAuxValue" placeholder="Substituir por">
+                                                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(headerIndex)">Aplicar</button>
+                                                                    </div>
+                                                                    <div class="preview-column-menu-group mt-3">
+                                                                        <div class="small fw-semibold mb-2">Filtros por coluna</div>
+                                                                        <select class="form-select form-select-sm mb-2" v-model="state.columnConfigs[headerIndex].filterOperator">
+                                                                            <option value="">Sem filtro</option>
+                                                                            <option value="contains">Contem</option>
+                                                                            <option value="equals">Igual</option>
+                                                                            <option value="starts-with">Comeca com</option>
+                                                                            <option value="ends-with">Termina com</option>
+                                                                            <option value="empty">Vazio</option>
+                                                                            <option value="not-empty">Nao vazio</option>
+                                                                            <option value="gt">Maior que</option>
+                                                                            <option value="lt">Menor que</option>
+                                                                            <option value="between">Entre</option>
+                                                                        </select>
+                                                                        <input v-if="['contains','equals','starts-with','ends-with','gt','lt','between'].includes(state.columnConfigs[headerIndex].filterOperator)" class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].filterValue" placeholder="Valor do filtro">
+                                                                        <input v-if="state.columnConfigs[headerIndex].filterOperator === 'between'" class="form-control form-control-sm" v-model="state.columnConfigs[headerIndex].filterValueTo" placeholder="Valor final">
+                                                                    </div>
+                                                                </div>
+                                                                <div class="preview-column-resize-handle" @mousedown="startPreviewColumnResize(state.standardColumnKeys[headerIndex], $event)"></div>
                                                             </div>
                                                         </th>
                                                     </tr>
@@ -1772,7 +2036,7 @@
                                                                 </button>
                                                             </div>
                                                         </td>
-                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex">
+                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex" :style="getPreviewColumnStyle(cellIndex)">
                                                             <input
                                                                 class="form-control form-control-sm preview-input"
                                                                 :value="cellIndex < rowItem.row.length ? rowItem.row[cellIndex] : ''"

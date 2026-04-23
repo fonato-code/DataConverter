@@ -478,6 +478,7 @@ html {
 
 .preview-header-cell {
     min-width: 11rem;
+    position: relative;
 }
 
 .preview-row-actions {
@@ -536,6 +537,34 @@ html {
 .preview-table thead .input-group {
     border-bottom: 1px solid var(--ec-border);
     min-height: 43px;
+}
+
+.preview-column-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0.35rem;
+    z-index: 12;
+    width: 18rem;
+    padding: 0.85rem;
+    border: 1px solid var(--ec-border);
+    border-radius: 0.9rem;
+    background: color-mix(in srgb, var(--ec-panel) 96%, transparent);
+    box-shadow: var(--ec-shadow);
+    backdrop-filter: blur(12px);
+}
+
+.preview-column-menu-group {
+    padding-top: 0.15rem;
+}
+
+.preview-column-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 10px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 13;
 }
 
 .preview-table tbody td+td {
