@@ -163,6 +163,8 @@
     createApp({
         setup() {
             let standardColumnKeySeed = 0;
+            let draggedPreviewRowIndex = -1;
+            let draggedPreviewColumnKey = "";
 
             function createColumnKey() {
                 standardColumnKeySeed += 1;
@@ -832,6 +834,29 @@
                 state.standardRows.splice(targetIndex, 0, movedRow);
             }
 
+            function startPreviewRowDrag(rowIndex) {
+                draggedPreviewRowIndex = rowIndex;
+            }
+
+            function dropPreviewRow(targetRowIndex) {
+                if (
+                    draggedPreviewRowIndex < 0
+                    || targetRowIndex < 0
+                    || draggedPreviewRowIndex === targetRowIndex
+                ) {
+                    draggedPreviewRowIndex = -1;
+                    return;
+                }
+
+                const movedRow = state.standardRows.splice(draggedPreviewRowIndex, 1)[0];
+                state.standardRows.splice(targetRowIndex, 0, movedRow);
+                draggedPreviewRowIndex = -1;
+            }
+
+            function endPreviewRowDrag() {
+                draggedPreviewRowIndex = -1;
+            }
+
             function addStandardColumn() {
                 const nextIndex = state.standardHeaders.length;
                 const nextHeader = "Col" + (nextIndex + 1);
@@ -843,41 +868,58 @@
                 });
             }
 
-            function removeStandardColumn(columnIndex) {
-                if (columnIndex < 0 || columnIndex >= state.standardHeaders.length) {
+            function moveStandardColumnByKey(draggedKey, targetKey) {
+                if (!draggedKey || !targetKey || draggedKey === targetKey) {
                     return;
                 }
 
-                const removedKey = state.standardColumnKeys[columnIndex];
-                state.standardHeaders.splice(columnIndex, 1);
-                state.standardColumnKeys.splice(columnIndex, 1);
-                state.standardRows.forEach(function (row) {
-                    row.splice(columnIndex, 1);
-                });
-                state.columnConfigs = state.columnConfigs.filter(function (column) {
-                    return column.key !== removedKey;
-                });
-            }
-
-            function moveStandardColumn(columnIndex, direction) {
-                const targetIndex = columnIndex + direction;
-                if (
-                    columnIndex < 0
-                    || columnIndex >= state.standardHeaders.length
-                    || targetIndex < 0
-                    || targetIndex >= state.standardHeaders.length
-                ) {
+                const draggedIndex = state.standardColumnKeys.indexOf(draggedKey);
+                const targetIndex = state.standardColumnKeys.indexOf(targetKey);
+                if (draggedIndex === -1 || targetIndex === -1) {
                     return;
                 }
 
-                const movedHeader = state.standardHeaders.splice(columnIndex, 1)[0];
-                const movedKey = state.standardColumnKeys.splice(columnIndex, 1)[0];
+                const movedHeader = state.standardHeaders.splice(draggedIndex, 1)[0];
+                const movedKey = state.standardColumnKeys.splice(draggedIndex, 1)[0];
                 state.standardHeaders.splice(targetIndex, 0, movedHeader);
                 state.standardColumnKeys.splice(targetIndex, 0, movedKey);
                 state.standardRows.forEach(function (row) {
-                    const movedCell = row.splice(columnIndex, 1)[0];
+                    const movedCell = row.splice(draggedIndex, 1)[0];
                     row.splice(targetIndex, 0, movedCell);
                 });
+            }
+
+            function startPreviewColumnDrag(columnKey) {
+                draggedPreviewColumnKey = columnKey;
+            }
+
+            function dropPreviewColumn(targetColumnKey) {
+                moveStandardColumnByKey(draggedPreviewColumnKey, targetColumnKey);
+                draggedPreviewColumnKey = "";
+            }
+
+            function endPreviewColumnDrag() {
+                draggedPreviewColumnKey = "";
+            }
+
+            function toggleStandardColumnVisibility(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                const targetColumn = state.columnConfigs.find(function (column) {
+                    return column.key === columnKey;
+                });
+
+                if (targetColumn) {
+                    targetColumn.enabled = !targetColumn.enabled;
+                }
+            }
+
+            function isStandardColumnVisible(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                const targetColumn = state.columnConfigs.find(function (column) {
+                    return column.key === columnKey;
+                });
+
+                return targetColumn ? targetColumn.enabled : true;
             }
 
             function applyBulkHeaderRename() {
@@ -990,6 +1032,12 @@
                 startColumnDrag,
                 dropColumn,
                 endColumnDrag,
+                startPreviewRowDrag,
+                dropPreviewRow,
+                endPreviewRowDrag,
+                startPreviewColumnDrag,
+                dropPreviewColumn,
+                endPreviewColumnDrag,
                 toggleSection,
                 toggleTheme,
                 updateStandardHeader,
@@ -998,8 +1046,8 @@
                 removeStandardRow,
                 moveStandardRow,
                 addStandardColumn,
-                removeStandardColumn,
-                moveStandardColumn,
+                toggleStandardColumnVisibility,
+                isStandardColumnVisible,
                 applyBulkHeaderRename,
                 dedupeStandardHeaders,
                 copyOutput,
@@ -1272,24 +1320,38 @@
                                             <table class="table table-sm align-middle mb-0 preview-table">
                                                 <thead>
                                                     <tr>
-                                                        <th class="preview-actions-col">Linha</th>
+                                                        <th class="preview-actions-col">Acoes</th>
                                                         <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]">
-                                                            <div class="preview-header-cell">
-                                                                <input
-                                                                    class="form-control form-control-sm preview-input"
-                                                                    :value="header"
-                                                                    @input="updateStandardHeader(headerIndex, $event.target.value)"
-                                                                    placeholder="Nome da coluna"
-                                                                >
-                                                                <div class="preview-header-actions">
-                                                                    <button class="btn btn-outline-secondary btn-sm" type="button" @click="moveStandardColumn(headerIndex, -1)" :disabled="headerIndex === 0" title="Mover para a esquerda">
-                                                                        <i class="fas fa-arrow-left" aria-hidden="true"></i>
+                                                            <div
+                                                                class="preview-header-cell"
+                                                                draggable="true"
+                                                                @dragstart="startPreviewColumnDrag(state.standardColumnKeys[headerIndex])"
+                                                                @dragover.prevent
+                                                                @drop.prevent="dropPreviewColumn(state.standardColumnKeys[headerIndex])"
+                                                                @dragend="endPreviewColumnDrag"
+                                                            >
+                                                                <div class="input-group input-group-sm preview-column-group">
+                                                                    <button
+                                                                        class="btn btn-outline-secondary preview-handle-btn"
+                                                                        type="button"
+                                                                        title="Arrastar coluna"
+                                                                    >
+                                                                        <i class="fas fa-grip-vertical" aria-hidden="true"></i>
                                                                     </button>
-                                                                    <button class="btn btn-outline-secondary btn-sm" type="button" @click="moveStandardColumn(headerIndex, 1)" :disabled="headerIndex === standardObject.headers.length - 1" title="Mover para a direita">
-                                                                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
-                                                                    </button>
-                                                                    <button class="btn btn-outline-danger btn-sm" type="button" @click="removeStandardColumn(headerIndex)" title="Remover coluna">
-                                                                        <i class="fas fa-trash" aria-hidden="true"></i>
+                                                                    <input
+                                                                        class="form-control form-control-sm preview-input"
+                                                                        :value="header"
+                                                                        @input="updateStandardHeader(headerIndex, $event.target.value)"
+                                                                        placeholder="Nome da coluna"
+                                                                    >
+                                                                    <button
+                                                                        class="btn"
+                                                                        :class="isStandardColumnVisible(headerIndex) ? 'btn-outline-success' : 'btn-outline-secondary'"
+                                                                        type="button"
+                                                                        @click="toggleStandardColumnVisibility(headerIndex)"
+                                                                        :title="isStandardColumnVisible(headerIndex) ? 'Ocultar coluna no output' : 'Exibir coluna no output'"
+                                                                    >
+                                                                        <i :class="isStandardColumnVisible(headerIndex) ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -1297,16 +1359,27 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <tr v-for="(row, rowIndex) in previewRows" :key="rowIndex">
+                                                    <tr
+                                                        v-for="(row, rowIndex) in previewRows"
+                                                        :key="rowIndex"
+                                                        draggable="true"
+                                                        @dragstart="startPreviewRowDrag(rowIndex)"
+                                                        @dragover.prevent
+                                                        @drop.prevent="dropPreviewRow(rowIndex)"
+                                                        @dragend="endPreviewRowDrag"
+                                                    >
                                                         <td class="preview-actions-col">
-                                                            <div class="preview-row-actions">
-                                                                <button class="btn btn-outline-secondary btn-sm" type="button" @click="moveStandardRow(rowIndex, -1)" :disabled="rowIndex === 0" title="Subir linha">
+                                                            <div class="btn-group btn-group-sm preview-row-actions" role="group">
+                                                                <button class="btn btn-outline-secondary preview-handle-btn" type="button" title="Arrastar linha">
+                                                                    <i class="fas fa-grip-vertical" aria-hidden="true"></i>
+                                                                </button>
+                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowIndex, -1)" :disabled="rowIndex === 0" title="Subir linha">
                                                                     <i class="fas fa-arrow-up" aria-hidden="true"></i>
                                                                 </button>
-                                                                <button class="btn btn-outline-secondary btn-sm" type="button" @click="moveStandardRow(rowIndex, 1)" :disabled="rowIndex === previewRows.length - 1" title="Descer linha">
+                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowIndex, 1)" :disabled="rowIndex === previewRows.length - 1" title="Descer linha">
                                                                     <i class="fas fa-arrow-down" aria-hidden="true"></i>
                                                                 </button>
-                                                                <button class="btn btn-outline-danger btn-sm" type="button" @click="removeStandardRow(rowIndex)" title="Remover linha">
+                                                                <button class="btn btn-outline-danger" type="button" @click="removeStandardRow(rowIndex)" title="Remover linha">
                                                                     <i class="fas fa-trash" aria-hidden="true"></i>
                                                                 </button>
                                                             </div>
