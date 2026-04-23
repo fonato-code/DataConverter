@@ -128,7 +128,9 @@
                 draggedColumnKey: "",
                 inputSectionCollapsed: false,
                 outputSectionCollapsed: false,
-                copyFeedback: ""
+                copyFeedback: "",
+                toasts: [],
+                lastAutoCopiedOutput: ""
             });
 
             watch(function () {
@@ -185,6 +187,14 @@
                     });
                     const formatLabel = currentInputFormat ? currentInputFormat.label : state.inputFormat;
                     return "O texto informado nao corresponde ao formato de input selecionado: " + formatLabel + ".";
+                }
+            });
+
+            watch(function () {
+                return inputFormatError.value;
+            }, function (message, previousMessage) {
+                if (message && message !== previousMessage) {
+                    pushToast(message, "danger");
                 }
             });
 
@@ -357,7 +367,7 @@
                 }
 
                 if (inputFormatError.value) {
-                    return "Erro: " + inputFormatError.value;
+                    return "";
                 }
 
                 try {
@@ -392,14 +402,22 @@
             async function writeToClipboard(text) {
                 if (!text) {
                     state.copyFeedback = "Sem conteudo";
+                    pushToast("Nao ha conteudo para copiar.", "warning");
                     return;
                 }
 
                 try {
                     await navigator.clipboard.writeText(text);
                     state.copyFeedback = "Copiado";
+                    pushToast(
+                        state.autoCopyOutput
+                            ? "Conversao concluida e copiada para a area de transferencia."
+                            : "Resultado copiado para a area de transferencia.",
+                        "success"
+                    );
                 } catch (_error) {
                     state.copyFeedback = "Falha ao copiar";
+                    pushToast("Falha ao copiar para a area de transferencia.", "danger");
                 }
 
                 window.setTimeout(function () {
@@ -413,10 +431,54 @@
                     output: output.value
                 };
             }, function (current) {
-                if (current.autoCopyOutput && current.output) {
+                if (!current.autoCopyOutput) {
+                    state.lastAutoCopiedOutput = "";
+                    return;
+                }
+
+                if (current.output && current.output !== state.lastAutoCopiedOutput) {
+                    state.lastAutoCopiedOutput = current.output;
                     writeToClipboard(current.output);
                 }
             });
+
+            watch(function () {
+                return state.autoCopyOutput;
+            }, function (enabled, previousEnabled) {
+                if (enabled === previousEnabled) {
+                    return;
+                }
+
+                pushToast(
+                    enabled
+                        ? "Auto copia ativada. Novas conversoes serao enviadas direto para a area de transferencia."
+                        : "Auto copia desativada. O resultado volta a ser exibido no textarea.",
+                    "info"
+                );
+            });
+
+            function pushToast(message, tone) {
+                const id = Date.now() + Math.random();
+                state.toasts.push({
+                    id: id,
+                    message: message,
+                    tone: tone || "info"
+                });
+
+                window.setTimeout(function () {
+                    dismissToast(id);
+                }, 2600);
+            }
+
+            function dismissToast(toastId) {
+                const toastIndex = state.toasts.findIndex(function (toast) {
+                    return toast.id === toastId;
+                });
+
+                if (toastIndex !== -1) {
+                    state.toasts.splice(toastIndex, 1);
+                }
+            }
 
             function moveColumn(draggedKey, targetKey) {
                 if (!draggedKey || !targetKey || draggedKey === targetKey) {
@@ -490,11 +552,31 @@
                 endColumnDrag,
                 toggleSection,
                 toggleTheme,
-                copyOutput
+                copyOutput,
+                dismissToast
             };
         },
         template: `
             <div class="app-wrap container-fluid">
+                <div class="toast-stack">
+                    <div
+                        v-for="toast in state.toasts"
+                        :key="toast.id"
+                        class="toast-item"
+                        :class="'toast-' + toast.tone"
+                    >
+                        <div class="d-flex align-items-start gap-3">
+                            <i
+                                :class="toast.tone === 'success' ? 'fas fa-check-circle' : toast.tone === 'danger' ? 'fas fa-exclamation-circle' : toast.tone === 'warning' ? 'fas fa-exclamation-triangle' : 'fas fa-info-circle'"
+                                aria-hidden="true"
+                            ></i>
+                            <div class="flex-grow-1 small">{{ toast.message }}</div>
+                            <button class="toast-close" type="button" @click="dismissToast(toast.id)" aria-label="Fechar">
+                                <i class="fas fa-times" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="row g-4">
                     <aside class="col-12 col-xl-3">
@@ -506,10 +588,6 @@
                                     <button class="theme-toggle" type="button" @click="toggleTheme" :title="state.theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'">
                                         <i :class="state.theme === 'light' ? 'fas fa-moon-stars' : 'fas fa-sun'" aria-hidden="true"></i>
                                     </button>
-                                </div>
-
-                                <div v-if="inputFormatError" class="alert alert-danger py-2 px-3 small" role="alert">
-                                    {{ inputFormatError }}
                                 </div>
 
                                 <div class="border rounded-4 p-3 mb-4 bg-white bg-opacity-50">

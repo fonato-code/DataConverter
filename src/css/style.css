@@ -63,6 +63,56 @@ textarea {
     padding: 1.5rem;
 }
 
+.toast-stack {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1080;
+    display: grid;
+    gap: 0.75rem;
+    width: min(24rem, calc(100vw - 2rem));
+}
+
+.toast-item {
+    border: 1px solid var(--ec-border);
+    border-radius: 1rem;
+    background: var(--ec-panel);
+    color: var(--ec-ink);
+    box-shadow: var(--ec-shadow);
+    backdrop-filter: blur(14px);
+    padding: 0.9rem 1rem;
+}
+
+.toast-info {
+    border-color: rgba(96, 165, 250, 0.28);
+}
+
+.toast-success {
+    border-color: rgba(16, 185, 129, 0.32);
+}
+
+.toast-warning {
+    border-color: rgba(245, 158, 11, 0.32);
+}
+
+.toast-danger {
+    border-color: rgba(248, 113, 113, 0.34);
+}
+
+.toast-close {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    line-height: 1;
+}
+
+.toast-close:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem var(--ec-focus-ring);
+    border-radius: 0.4rem;
+}
+
 .hero-card,
 .sidebar-card,
 .panel-card {
@@ -289,6 +339,12 @@ textarea {
 @media (max-width: 991.98px) {
     .app-wrap {
         padding: 1rem;
+    }
+
+    .toast-stack {
+        top: 0.75rem;
+        right: 0.75rem;
+        width: min(22rem, calc(100vw - 1.5rem));
     }
 
     .sidebar-card {
