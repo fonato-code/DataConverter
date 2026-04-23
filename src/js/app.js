@@ -118,6 +118,8 @@
                 standardHeaders: defaultState.standardHeaders,
                 standardRows: defaultState.standardRows,
                 standardColumnKeys: defaultState.standardColumnKeys,
+                standardRowKeys: defaultState.standardRowKeys,
+                rowConfigs: defaultState.rowConfigs,
                 columnConfigs: defaultState.columnConfigs,
                 draggedColumnKey: defaultState.draggedColumnKey,
                 bulkHeaderRenameMode: defaultState.bulkHeaderRenameMode,
@@ -163,8 +165,10 @@
     createApp({
         setup() {
             let standardColumnKeySeed = 0;
+            let standardRowKeySeed = 0;
             let draggedPreviewRowIndex = -1;
             let draggedPreviewColumnKey = "";
+            let isSidebarResizing = false;
 
             function createColumnKey() {
                 standardColumnKeySeed += 1;
@@ -174,6 +178,17 @@
             function createColumnKeys(count) {
                 return Array.from({ length: count }, function () {
                     return createColumnKey();
+                });
+            }
+
+            function createRowKey() {
+                standardRowKeySeed += 1;
+                return "stdrow_" + standardRowKeySeed;
+            }
+
+            function createRowKeys(count) {
+                return Array.from({ length: count }, function () {
+                    return createRowKey();
                 });
             }
 
@@ -252,13 +267,23 @@
                 standardHeaders: [],
                 standardRows: [],
                 standardColumnKeys: [],
+                standardRowKeys: [],
+                rowConfigs: [],
                 columnConfigs: [],
                 draggedColumnKey: "",
                 inputSectionCollapsed: false,
+                previewSectionCollapsed: false,
                 outputSectionCollapsed: false,
+                sidebarOpen: true,
+                sidebarWidth: 340,
                 bulkHeaderRenameMode: "snake_case",
                 bulkHeaderRenamePrefix: "",
                 bulkHeaderRenameSuffix: "",
+                previewSearch: "",
+                previewPage: 1,
+                previewPageSize: 50,
+                previewSortColumnKey: "",
+                previewSortDirection: "none",
                 copyFeedback: "",
                 toasts: [],
                 lastAutoCopiedOutput: ""
@@ -291,7 +316,10 @@
                     sqlConvertEmptyToNull: state.sqlConvertEmptyToNull,
                     autoCopyOutput: state.autoCopyOutput,
                     inputSectionCollapsed: state.inputSectionCollapsed,
+                    previewSectionCollapsed: state.previewSectionCollapsed,
                     outputSectionCollapsed: state.outputSectionCollapsed,
+                    sidebarOpen: state.sidebarOpen,
+                    sidebarWidth: state.sidebarWidth,
                     bulkHeaderRenameMode: state.bulkHeaderRenameMode,
                     bulkHeaderRenamePrefix: state.bulkHeaderRenamePrefix,
                     bulkHeaderRenameSuffix: state.bulkHeaderRenameSuffix
@@ -386,6 +414,8 @@
                 state.standardHeaders = data.headers.slice();
                 state.standardRows = cloneRows(data.dataRows);
                 state.standardColumnKeys = createColumnKeys(data.headers.length);
+                state.standardRowKeys = createRowKeys(data.dataRows.length);
+                state.previewPage = 1;
             }, { immediate: true });
 
             const standardObject = computed(function () {
@@ -397,6 +427,16 @@
 
             const previewRows = computed(function () {
                 return standardObject.value.dataRows;
+            });
+
+            const availableRows = computed(function () {
+                return state.standardRowKeys.map(function (key, index) {
+                    return {
+                        key: key,
+                        rowIndex: index,
+                        row: state.standardRows[index] || []
+                    };
+                });
             });
 
             const previewMeta = computed(function () {
@@ -412,6 +452,69 @@
                 }
 
                 return rowCount + " linhas e " + columnCount + " colunas.";
+            });
+
+            const filteredPreviewRows = computed(function () {
+                const search = state.previewSearch.trim().toLowerCase();
+                let rows = availableRows.value;
+
+                if (search) {
+                    rows = rows.filter(function (rowItem) {
+                        return rowItem.row.some(function (cell) {
+                            return String(cell === undefined || cell === null ? "" : cell)
+                                .toLowerCase()
+                                .indexOf(search) !== -1;
+                        });
+                    });
+                }
+
+                if (state.previewSortDirection === "none" || !state.previewSortColumnKey) {
+                    return rows;
+                }
+
+                const sortColumnIndex = state.standardColumnKeys.indexOf(state.previewSortColumnKey);
+                if (sortColumnIndex === -1) {
+                    return rows;
+                }
+
+                return rows.slice().sort(function (left, right) {
+                    const leftValue = String(left.row[sortColumnIndex] === undefined || left.row[sortColumnIndex] === null ? "" : left.row[sortColumnIndex]).toLowerCase();
+                    const rightValue = String(right.row[sortColumnIndex] === undefined || right.row[sortColumnIndex] === null ? "" : right.row[sortColumnIndex]).toLowerCase();
+
+                    if (leftValue < rightValue) {
+                        return state.previewSortDirection === "asc" ? -1 : 1;
+                    }
+
+                    if (leftValue > rightValue) {
+                        return state.previewSortDirection === "asc" ? 1 : -1;
+                    }
+
+                    return 0;
+                });
+            });
+
+            const previewPageCount = computed(function () {
+                if (!filteredPreviewRows.value.length) {
+                    return 1;
+                }
+
+                return Math.max(1, Math.ceil(filteredPreviewRows.value.length / state.previewPageSize));
+            });
+
+            const paginatedPreviewRows = computed(function () {
+                const safePage = Math.min(state.previewPage, previewPageCount.value);
+                const start = (safePage - 1) * state.previewPageSize;
+                return filteredPreviewRows.value.slice(start, start + state.previewPageSize);
+            });
+
+            const previewRangeLabel = computed(function () {
+                if (!filteredPreviewRows.value.length) {
+                    return "0 de 0 linhas";
+                }
+
+                const start = ((Math.min(state.previewPage, previewPageCount.value) - 1) * state.previewPageSize) + 1;
+                const end = Math.min(start + state.previewPageSize - 1, filteredPreviewRows.value.length);
+                return start + "-" + end + " de " + filteredPreviewRows.value.length + " linhas";
             });
 
             const availableColumns = computed(function () {
@@ -482,6 +585,21 @@
                 });
             }, { immediate: true });
 
+            watch(availableRows, function (nextRows) {
+                const previousByKey = state.rowConfigs.reduce(function (accumulator, rowConfig) {
+                    accumulator[rowConfig.key] = rowConfig;
+                    return accumulator;
+                }, {});
+
+                state.rowConfigs = nextRows.map(function (row) {
+                    const previous = previousByKey[row.key];
+                    return {
+                        key: row.key,
+                        enabled: previous ? previous.enabled : true
+                    };
+                });
+            }, { immediate: true });
+
             const duplicateHeaders = computed(function () {
                 const counts = standardObject.value.headers.reduce(function (accumulator, header) {
                     const token = normalizeHeaderToken(header);
@@ -522,6 +640,15 @@
                 });
             });
 
+            const selectedRows = computed(function () {
+                return availableRows.value.filter(function (row) {
+                    const rowConfig = state.rowConfigs.find(function (item) {
+                        return item.key === row.key;
+                    });
+                    return !rowConfig || rowConfig.enabled;
+                });
+            });
+
             const orderedHeaders = computed(function () {
                 return selectedColumns.value.map(function (column) {
                     return column.outputName || column.header;
@@ -542,7 +669,8 @@
             });
 
             const orderedRows = computed(function () {
-                return standardObject.value.dataRows.map(function (row) {
+                return selectedRows.value.map(function (rowItem) {
+                    const row = rowItem.row;
                     return selectedColumns.value.map(function (column) {
                         return column.sourceIndex < row.length ? row[column.sourceIndex] : "";
                     });
@@ -739,6 +867,20 @@
             });
 
             watch(function () {
+                return state.previewSearch;
+            }, function () {
+                state.previewPage = 1;
+            });
+
+            watch(function () {
+                return previewPageCount.value;
+            }, function (count) {
+                if (state.previewPage > count) {
+                    state.previewPage = count;
+                }
+            });
+
+            watch(function () {
                 return duplicateHeaderMessage.value;
             }, function (message, previousMessage) {
                 if (message && message !== previousMessage) {
@@ -767,6 +909,26 @@
                 if (toastIndex !== -1) {
                     state.toasts.splice(toastIndex, 1);
                 }
+            }
+
+            function syncColumnConfigOrderWithStandard() {
+                const configByKey = state.columnConfigs.reduce(function (accumulator, column) {
+                    accumulator[column.key] = column;
+                    return accumulator;
+                }, {});
+
+                state.columnConfigs = state.standardColumnKeys.map(function (key, index) {
+                    const existing = configByKey[key];
+                    return existing || {
+                        key: key,
+                        header: state.standardHeaders[index],
+                        sourceIndex: index,
+                        enabled: true,
+                        outputName: state.standardHeaders[index],
+                        sqlType: "",
+                        avroType: ""
+                    };
+                });
             }
 
             function syncOutputNameForHeader(columnIndex, nextHeader, previousHeader) {
@@ -809,14 +971,35 @@
                 state.standardRows.push(Array.from({ length: state.standardHeaders.length }, function () {
                     return "";
                 }));
+                state.standardRowKeys.push(createRowKey());
+                state.rowConfigs.push({
+                    key: state.standardRowKeys[state.standardRowKeys.length - 1],
+                    enabled: true
+                });
             }
 
-            function removeStandardRow(rowIndex) {
+            function toggleStandardRowVisibility(rowIndex) {
                 if (rowIndex < 0 || rowIndex >= state.standardRows.length) {
                     return;
                 }
 
-                state.standardRows.splice(rowIndex, 1);
+                const rowKey = state.standardRowKeys[rowIndex];
+                const targetConfig = state.rowConfigs.find(function (rowConfig) {
+                    return rowConfig.key === rowKey;
+                });
+
+                if (targetConfig) {
+                    targetConfig.enabled = !targetConfig.enabled;
+                }
+            }
+
+            function isStandardRowVisible(rowIndex) {
+                const rowKey = state.standardRowKeys[rowIndex];
+                const targetConfig = state.rowConfigs.find(function (rowConfig) {
+                    return rowConfig.key === rowKey;
+                });
+
+                return targetConfig ? targetConfig.enabled : true;
             }
 
             function moveStandardRow(rowIndex, direction) {
@@ -831,7 +1014,11 @@
                 }
 
                 const movedRow = state.standardRows.splice(rowIndex, 1)[0];
+                const movedRowKey = state.standardRowKeys.splice(rowIndex, 1)[0];
+                const movedRowConfig = state.rowConfigs.splice(rowIndex, 1)[0];
                 state.standardRows.splice(targetIndex, 0, movedRow);
+                state.standardRowKeys.splice(targetIndex, 0, movedRowKey);
+                state.rowConfigs.splice(targetIndex, 0, movedRowConfig);
             }
 
             function startPreviewRowDrag(rowIndex) {
@@ -849,7 +1036,11 @@
                 }
 
                 const movedRow = state.standardRows.splice(draggedPreviewRowIndex, 1)[0];
+                const movedRowKey = state.standardRowKeys.splice(draggedPreviewRowIndex, 1)[0];
+                const movedRowConfig = state.rowConfigs.splice(draggedPreviewRowIndex, 1)[0];
                 state.standardRows.splice(targetRowIndex, 0, movedRow);
+                state.standardRowKeys.splice(targetRowIndex, 0, movedRowKey);
+                state.rowConfigs.splice(targetRowIndex, 0, movedRowConfig);
                 draggedPreviewRowIndex = -1;
             }
 
@@ -887,6 +1078,7 @@
                     const movedCell = row.splice(draggedIndex, 1)[0];
                     row.splice(targetIndex, 0, movedCell);
                 });
+                syncColumnConfigOrderWithStandard();
             }
 
             function startPreviewColumnDrag(columnKey) {
@@ -975,6 +1167,19 @@
 
                 const movedColumn = state.columnConfigs.splice(draggedIndex, 1)[0];
                 state.columnConfigs.splice(targetIndex, 0, movedColumn);
+
+                const standardDraggedIndex = state.standardColumnKeys.indexOf(draggedKey);
+                const standardTargetIndex = state.standardColumnKeys.indexOf(targetKey);
+                if (standardDraggedIndex !== -1 && standardTargetIndex !== -1) {
+                    const movedHeader = state.standardHeaders.splice(standardDraggedIndex, 1)[0];
+                    const movedKey = state.standardColumnKeys.splice(standardDraggedIndex, 1)[0];
+                    state.standardHeaders.splice(standardTargetIndex, 0, movedHeader);
+                    state.standardColumnKeys.splice(standardTargetIndex, 0, movedKey);
+                    state.standardRows.forEach(function (row) {
+                        const movedCell = row.splice(standardDraggedIndex, 1)[0];
+                        row.splice(standardTargetIndex, 0, movedCell);
+                    });
+                }
             }
 
             function startColumnDrag(columnKey) {
@@ -996,9 +1201,70 @@
                     return;
                 }
 
+                if (sectionName === "preview") {
+                    state.previewSectionCollapsed = !state.previewSectionCollapsed;
+                    return;
+                }
+
                 if (sectionName === "output") {
                     state.outputSectionCollapsed = !state.outputSectionCollapsed;
                 }
+            }
+
+            function toggleSidebar() {
+                state.sidebarOpen = !state.sidebarOpen;
+            }
+
+            function cyclePreviewSort(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                if (state.previewSortColumnKey !== columnKey) {
+                    state.previewSortColumnKey = columnKey;
+                    state.previewSortDirection = "asc";
+                    state.previewPage = 1;
+                    return;
+                }
+
+                if (state.previewSortDirection === "none") {
+                    state.previewSortDirection = "asc";
+                } else if (state.previewSortDirection === "asc") {
+                    state.previewSortDirection = "desc";
+                } else {
+                    state.previewSortDirection = "none";
+                    state.previewSortColumnKey = "";
+                }
+
+                state.previewPage = 1;
+            }
+
+            function getPreviewSortIcon(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                if (state.previewSortColumnKey !== columnKey || state.previewSortDirection === "none") {
+                    return "fas fa-sort";
+                }
+
+                return state.previewSortDirection === "asc" ? "fas fa-sort-up" : "fas fa-sort-down";
+            }
+
+            function startSidebarResize(event) {
+                event.preventDefault();
+                isSidebarResizing = true;
+
+                function onMove(moveEvent) {
+                    if (!isSidebarResizing) {
+                        return;
+                    }
+
+                    state.sidebarWidth = Math.max(280, Math.min(520, moveEvent.clientX));
+                }
+
+                function onUp() {
+                    isSidebarResizing = false;
+                    window.removeEventListener("mousemove", onMove);
+                    window.removeEventListener("mouseup", onUp);
+                }
+
+                window.addEventListener("mousemove", onMove);
+                window.addEventListener("mouseup", onUp);
             }
 
             function toggleTheme() {
@@ -1009,6 +1275,10 @@
                 writeToClipboard(output.value);
             }
 
+            function goToPreviewPage(page) {
+                state.previewPage = Math.max(1, Math.min(previewPageCount.value, page));
+            }
+
             return {
                 state,
                 statusMessage,
@@ -1016,6 +1286,9 @@
                 standardObject,
                 previewRows,
                 previewMeta,
+                paginatedPreviewRows,
+                previewPageCount,
+                previewRangeLabel,
                 duplicateHeaders,
                 duplicateHeaderMessage,
                 output,
@@ -1039,11 +1312,16 @@
                 dropPreviewColumn,
                 endPreviewColumnDrag,
                 toggleSection,
+                toggleSidebar,
+                cyclePreviewSort,
+                getPreviewSortIcon,
+                startSidebarResize,
                 toggleTheme,
                 updateStandardHeader,
                 updateStandardCell,
                 addStandardRow,
-                removeStandardRow,
+                toggleStandardRowVisibility,
+                isStandardRowVisible,
                 moveStandardRow,
                 addStandardColumn,
                 toggleStandardColumnVisibility,
@@ -1052,11 +1330,22 @@
                 dedupeStandardHeaders,
                 copyOutput,
                 downloadOutput,
+                goToPreviewPage,
                 dismissToast
             };
         },
         template: `
             <div class="app-wrap container-fluid">
+                <nav class="topbar">
+                    <div class="topbar-brand">
+                        <i class="fas fa-table" aria-hidden="true"></i>
+                        <span>ExcelConverter</span>
+                    </div>
+                    <button class="theme-toggle" type="button" @click="toggleTheme" :title="state.theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'">
+                        <i :class="state.theme === 'light' ? 'fas fa-moon-stars' : 'fas fa-sun'" aria-hidden="true"></i>
+                    </button>
+                </nav>
+
                 <div class="toast-stack">
                     <div
                         v-for="toast in state.toasts"
@@ -1077,17 +1366,19 @@
                     </div>
                 </div>
 
-                <div class="row g-4">
-                    <aside class="col-12 col-xl-3">
+                <div class="workspace-body">
+                    <button class="sidebar-floating-toggle" type="button" @click="toggleSidebar" :title="state.sidebarOpen ? 'Ocultar configuracoes' : 'Exibir configuracoes'">
+                        <i class="fas fa-sliders-h" aria-hidden="true"></i>
+                    </button>
+
+                    <aside v-show="state.sidebarOpen" class="sidebar-shell" :style="{ width: state.sidebarWidth + 'px' }">
                         <div class="sidebar-card h-100">
                             <div class="sidebar-accent"></div>
+                            <button class="sidebar-collapse-btn" type="button" @click="toggleSidebar" title="Ocultar configuracoes">
+                                <i class="fas fa-chevron-left" aria-hidden="true"></i>
+                            </button>
                             <div class="card-body p-4 sidebar-scroll">
-                                <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
-                                    <div class="sidebar-title mb-0">Configuracoes</div>
-                                    <button class="theme-toggle" type="button" @click="toggleTheme" :title="state.theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'">
-                                        <i :class="state.theme === 'light' ? 'fas fa-moon-stars' : 'fas fa-sun'" aria-hidden="true"></i>
-                                    </button>
-                                </div>
+                                <div class="sidebar-title mb-3">Configuracao</div>
 
                                 <div class="border rounded-4 p-3 mb-4 bg-white bg-opacity-50">
                                     <button class="config-section-toggle" type="button" @click="toggleSection('input')">
@@ -1249,10 +1540,11 @@
                                 </div>
 
                             </div>
+                            <div class="sidebar-resize-handle" @mousedown="startSidebarResize"></div>
                         </div>
                     </aside>
 
-                    <main class="col-12 col-xl-9">
+                    <main class="workspace-main">
                         <div class="row g-4">
                             <section class="col-12">
                                 <div class="panel-card input-panel h-100">
@@ -1262,14 +1554,18 @@
                                                 <div class="editor-label mb-1">Input</div>
                                                 <h3 class="h5 mb-0">Texto de origem</h3>
                                             </div>
-                                            <div class="col-12 col-sm-5 col-lg-6 col-xxl-5 px-0">
+                                            <div class="d-flex align-items-center gap-2 col-12 col-sm-6 col-lg-7 col-xxl-6 px-0">
                                                 <select class="form-select form-select-sm" v-model="state.inputFormat">
                                                     <option v-for="format in inputFormats" :key="format.value" :value="format.value">
                                                         {{ format.label }}
                                                     </option>
                                                 </select>
+                                                <button class="btn btn-outline-secondary btn-sm section-toggle-btn border-0" type="button" @click="toggleSection('input')">
+                                                    <i :class="state.inputSectionCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'" aria-hidden="true"></i>
+                                                </button>
                                             </div>
                                         </div>
+                                        <div v-show="!state.inputSectionCollapsed">
                                         <div
                                             class="status-chip mb-3"
                                             :class="inputFormatError ? 'error' : statusMessage.tone"
@@ -1282,6 +1578,7 @@
                                             placeholder="Cole aqui dados copiados do Excel, CSV ou TSV"
                                             spellcheck="false"
                                         ></textarea>
+                                        </div>
                                     </div>
                                 </div>
                             </section>
@@ -1294,9 +1591,15 @@
                                                 <div class="editor-label mb-1">Preview</div>
                                                 <h3 class="h5 mb-0">Objeto padrao</h3>
                                             </div>
-                                            <div class="small text-secondary">{{ previewMeta }}</div>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div class="small text-secondary">{{ previewMeta }}</div>
+                                                <button class="btn btn-outline-secondary btn-sm section-toggle-btn border-0" type="button" @click="toggleSection('preview')">
+                                                    <i :class="state.previewSectionCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'" aria-hidden="true"></i>
+                                                </button>
+                                            </div>
                                         </div>
 
+                                        <div v-show="!state.previewSectionCollapsed">
                                         <div v-if="duplicateHeaderMessage" class="status-chip warning mb-3 d-flex align-items-center justify-content-between gap-3 flex-wrap">
                                             <span>{{ duplicateHeaderMessage }}</span>
                                             <button class="btn btn-sm btn-outline-warning" type="button" @click="dedupeStandardHeaders">
@@ -1304,15 +1607,25 @@
                                             </button>
                                         </div>
 
-                                        <div v-if="standardObject.headers.length" class="d-flex align-items-center justify-content-between gap-2 flex-wrap mb-3">
-                                            <div class="small text-secondary">Edite headers e valores diretamente na grade.</div>
-                                            <div class="d-flex gap-2 flex-wrap">
-                                                <button class="btn btn-outline-primary btn-sm" type="button" @click="addStandardColumn">
-                                                    <i class="fas fa-columns me-2" aria-hidden="true"></i>Adicionar coluna
+                                        <div v-if="standardObject.headers.length" class="preview-toolbar mb-3">
+                                            <div class="input-group input-group-sm preview-search-group">
+                                                <span class="input-group-text"><i class="fas fa-search" aria-hidden="true"></i></span>
+                                                <input class="form-control" v-model="state.previewSearch" placeholder="Buscar nas linhas">
+                                                <button class="btn btn-outline-primary" type="button" @click="addStandardColumn" title="Adicionar coluna">
+                                                    <i class="fas fa-columns" aria-hidden="true"></i>
                                                 </button>
-                                                <button class="btn btn-outline-primary btn-sm" type="button" @click="addStandardRow">
-                                                    <i class="fas fa-plus me-2" aria-hidden="true"></i>Adicionar linha
+                                                <button class="btn btn-outline-primary" type="button" @click="addStandardRow" title="Adicionar linha">
+                                                    <i class="fas fa-plus" aria-hidden="true"></i>
                                                 </button>
+                                            </div>
+                                            <div class="preview-page-size">
+                                                <select class="form-select form-select-sm" v-model.number="state.previewPageSize">
+                                                    <option :value="10">10</option>
+                                                    <option :value="25">25</option>
+                                                    <option :value="50">50</option>
+                                                    <option :value="100">100</option>
+                                                </select>
+                                                <span>linhas por pagina</span>
                                             </div>
                                         </div>
 
@@ -1344,6 +1657,9 @@
                                                                         @input="updateStandardHeader(headerIndex, $event.target.value)"
                                                                         placeholder="Nome da coluna"
                                                                     >
+                                                                    <button class="btn btn-outline-secondary" type="button" @click="cyclePreviewSort(headerIndex)" title="Ordenar preview">
+                                                                        <i :class="getPreviewSortIcon(headerIndex)" aria-hidden="true"></i>
+                                                                    </button>
                                                                     <button
                                                                         class="btn"
                                                                         :class="isStandardColumnVisible(headerIndex) ? 'btn-outline-success' : 'btn-outline-secondary'"
@@ -1360,12 +1676,12 @@
                                                 </thead>
                                                 <tbody>
                                                     <tr
-                                                        v-for="(row, rowIndex) in previewRows"
-                                                        :key="rowIndex"
+                                                        v-for="rowItem in paginatedPreviewRows"
+                                                        :key="rowItem.key"
                                                         draggable="true"
-                                                        @dragstart="startPreviewRowDrag(rowIndex)"
+                                                        @dragstart="startPreviewRowDrag(rowItem.rowIndex)"
                                                         @dragover.prevent
-                                                        @drop.prevent="dropPreviewRow(rowIndex)"
+                                                        @drop.prevent="dropPreviewRow(rowItem.rowIndex)"
                                                         @dragend="endPreviewRowDrag"
                                                     >
                                                         <td class="preview-actions-col">
@@ -1373,22 +1689,28 @@
                                                                 <button class="btn btn-outline-secondary preview-handle-btn" type="button" title="Arrastar linha">
                                                                     <i class="fas fa-grip-vertical" aria-hidden="true"></i>
                                                                 </button>
-                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowIndex, -1)" :disabled="rowIndex === 0" title="Subir linha">
+                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowItem.rowIndex, -1)" :disabled="rowItem.rowIndex === 0" title="Subir linha">
                                                                     <i class="fas fa-arrow-up" aria-hidden="true"></i>
                                                                 </button>
-                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowIndex, 1)" :disabled="rowIndex === previewRows.length - 1" title="Descer linha">
+                                                                <button class="btn btn-outline-secondary" type="button" @click="moveStandardRow(rowItem.rowIndex, 1)" :disabled="rowItem.rowIndex === previewRows.length - 1" title="Descer linha">
                                                                     <i class="fas fa-arrow-down" aria-hidden="true"></i>
                                                                 </button>
-                                                                <button class="btn btn-outline-danger" type="button" @click="removeStandardRow(rowIndex)" title="Remover linha">
-                                                                    <i class="fas fa-trash" aria-hidden="true"></i>
+                                                                <button
+                                                                    class="btn"
+                                                                    :class="isStandardRowVisible(rowItem.rowIndex) ? 'btn-outline-success' : 'btn-outline-secondary'"
+                                                                    type="button"
+                                                                    @click="toggleStandardRowVisibility(rowItem.rowIndex)"
+                                                                    :title="isStandardRowVisible(rowItem.rowIndex) ? 'Ocultar linha no output' : 'Exibir linha no output'"
+                                                                >
+                                                                    <i :class="isStandardRowVisible(rowItem.rowIndex) ? 'fas fa-eye' : 'fas fa-eye-slash'" aria-hidden="true"></i>
                                                                 </button>
                                                             </div>
                                                         </td>
-                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowIndex + '-' + cellIndex">
+                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex">
                                                             <input
                                                                 class="form-control form-control-sm preview-input"
-                                                                :value="cellIndex < row.length ? row[cellIndex] : ''"
-                                                                @input="updateStandardCell(rowIndex, cellIndex, $event.target.value)"
+                                                                :value="cellIndex < rowItem.row.length ? rowItem.row[cellIndex] : ''"
+                                                                @input="updateStandardCell(rowItem.rowIndex, cellIndex, $event.target.value)"
                                                                 placeholder="-"
                                                             >
                                                         </td>
@@ -1397,8 +1719,24 @@
                                             </table>
                                         </div>
 
+                                        <div v-if="standardObject.headers.length" class="preview-pagination">
+                                            <div class="small text-secondary">{{ previewRangeLabel }}</div>
+                                            <div class="btn-group btn-group-sm" role="group">
+                                                <button class="btn btn-outline-secondary" type="button" @click="goToPreviewPage(state.previewPage - 1)" :disabled="state.previewPage <= 1">
+                                                    <i class="fas fa-chevron-left" aria-hidden="true"></i>
+                                                </button>
+                                                <button class="btn btn-outline-secondary" type="button" disabled>
+                                                    Pagina {{ state.previewPage }} / {{ previewPageCount }}
+                                                </button>
+                                                <button class="btn btn-outline-secondary" type="button" @click="goToPreviewPage(state.previewPage + 1)" :disabled="state.previewPage >= previewPageCount">
+                                                    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div v-else class="preview-empty">
                                             O objeto padrao sera exibido aqui assim que o input for lido com sucesso.
+                                        </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1408,11 +1746,14 @@
                                 <div class="panel-card output-panel h-100">
                                     <div class="card-body p-4">
                                         <div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
-                                            <div>
-                                                <div class="editor-label mb-1">Output</div>
-                                                <h3 class="h5 mb-0">Resultado convertido</h3>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div>
+                                                    <div class="editor-label mb-1">Output</div>
+                                                    <h3 class="h5 mb-0">Resultado convertido</h3>
+                                                </div>
+                                                
                                             </div>
-                                            <div class="col-12 col-lg-8 col-xxl-7 px-0">
+                                            <div class="d-flex align-items-center gap-2 col-12 col-sm-6 col-lg-7 col-xxl-6 px-0">
                                                 <div class="input-group input-group-sm">
                                                     <select class="form-select" v-model="state.outputFormat">
                                                         <option v-for="format in outputFormats" :key="format.value" :value="format.value">
@@ -1438,8 +1779,14 @@
                                                         <i :class="state.autoCopyOutput ? 'fas fa-clipboard-check' : 'fas fa-clipboard'" aria-hidden="true"></i>
                                                     </button>
                                                 </div>
+                                                
+                                                <button class="btn btn-outline-secondary btn-sm section-toggle-btn border-0" type="button" @click="toggleSection('output')">
+                                                    <i :class="state.outputSectionCollapsed ? 'fas fa-chevron-down' : 'fas fa-chevron-up'" aria-hidden="true"></i>
+                                                </button>
+
                                             </div>
                                         </div>
+                                        <div v-show="!state.outputSectionCollapsed">
                                         <textarea
                                             class="form-control editor-textarea"
                                             :value="visibleOutput"
@@ -1447,6 +1794,7 @@
                                             spellcheck="false"
                                             :placeholder="state.autoCopyOutput ? 'Auto copiar ativo. O resultado sera enviado direto para a area de transferencia.' : 'O resultado convertido sera exibido aqui'"
                                         ></textarea>
+                                        </div>
                                     </div>
                                 </div>
                             </section>

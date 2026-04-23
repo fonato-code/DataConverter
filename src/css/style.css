@@ -57,6 +57,44 @@ body {
     position: relative;
     min-height: 100vh;
     padding: 1.5rem;
+    padding-top: 6rem;
+}
+
+.topbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1045;
+    height: 4.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+    border-bottom: 1px solid var(--ec-border);
+    background: color-mix(in srgb, var(--ec-panel) 92%, transparent);
+    backdrop-filter: blur(14px);
+}
+
+.topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--ec-ink);
+}
+
+.topbar-brand i {
+    color: var(--ec-primary);
+}
+
+.workspace-body {
+    position: relative;
+}
+
+.workspace-main {
+    width: 100%;
 }
 
 .toast-stack {
@@ -159,19 +197,79 @@ body {
     overflow: hidden;
     background:
         linear-gradient(180deg, var(--ec-sidebar-bg-top), var(--ec-sidebar-bg-bottom));
-    position: sticky;
-    top: 1.5rem;
-    max-height: calc(100vh - 3rem);
+    position: relative;
+    height: 100%;
+    max-height: calc(100vh - 4.5rem);
+    border-radius: 0;
+}
+
+.sidebar-shell {
+    position: fixed;
+    top: 4.5rem;
+    left: 0;
+    bottom: 0;
+    z-index: 1060;
+    max-width: min(90vw, 520px);
 }
 
 .sidebar-scroll {
     overflow-y: auto;
-    max-height: calc(100vh - 3.5rem);
+    max-height: calc(100vh - 8rem);
 }
 
 .sidebar-accent {
     height: 8px;
     background: linear-gradient(90deg, var(--ec-primary), var(--ec-secondary), var(--ec-accent));
+}
+
+.sidebar-floating-toggle,
+.sidebar-collapse-btn {
+    position: fixed;
+    z-index: 1055;
+    border: 1px solid var(--ec-border);
+    background: var(--ec-panel);
+    color: var(--ec-ink);
+    box-shadow: var(--ec-shadow);
+    backdrop-filter: blur(12px);
+}
+
+.sidebar-floating-toggle {
+    left: 0px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2.75rem;
+    height: 3.5rem;
+    border-radius: 0px 10px 10px 0px;
+    opacity: 0.5;
+}
+
+.sidebar-floating-toggle:hover {
+    opacity: 1;
+}
+
+.sidebar-collapse-btn {
+    top: 1rem;
+    right: 1rem;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+}
+
+.sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem 1.25rem 0;
+}
+
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 100%;
+    cursor: col-resize;
 }
 
 .sidebar-title {
@@ -411,6 +509,42 @@ body {
     background: rgba(96, 165, 250, 0.08) !important;
 }
 
+.preview-search-group {
+    min-width: 16rem;
+}
+
+.preview-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.preview-page-size {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--ec-ink);
+}
+
+.preview-page-size .form-select {
+    width: auto;
+    min-width: 5rem;
+}
+
+.preview-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 0.9rem;
+}
+
+.section-toggle-btn {
+    min-width: 2.25rem;
+}
+
 .preview-empty {
     min-height: 8rem;
     display: flex;
@@ -484,6 +618,7 @@ body {
 @media (max-width: 991.98px) {
     .app-wrap {
         padding: 1rem;
+        padding-top: 5.5rem;
     }
 
     .toast-stack {
@@ -495,11 +630,24 @@ body {
     .sidebar-card {
         position: static;
         max-height: none;
+        border-radius: 1.25rem;
+    }
+
+    .sidebar-shell {
+        width: 100% !important;
+        position: static;
+        max-width: none;
     }
 
     .sidebar-scroll {
         max-height: none;
         overflow: visible;
+    }
+
+    .sidebar-floating-toggle,
+    .sidebar-collapse-btn,
+    .sidebar-resize-handle {
+        display: none;
     }
 
     .editor-textarea {
@@ -515,5 +663,14 @@ body {
 
     .preview-input {
         min-width: 8rem;
+    }
+
+    .preview-pagination {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .preview-search-group {
+        min-width: 100%;
     }
 }
