@@ -125,12 +125,18 @@
                 originalStandardRowKeys: defaultState.originalStandardRowKeys,
                 previewColumnWidths: defaultState.previewColumnWidths,
                 previewColumnMenuKey: defaultState.previewColumnMenuKey,
+                previewColumnMenuTop: defaultState.previewColumnMenuTop,
+                previewColumnMenuLeft: defaultState.previewColumnMenuLeft,
+                previewColumnMenuMaxHeight: defaultState.previewColumnMenuMaxHeight,
                 rowConfigs: defaultState.rowConfigs,
                 columnConfigs: defaultState.columnConfigs,
                 draggedColumnKey: defaultState.draggedColumnKey,
                 bulkHeaderRenameMode: defaultState.bulkHeaderRenameMode,
                 bulkHeaderRenamePrefix: defaultState.bulkHeaderRenamePrefix,
                 bulkHeaderRenameSuffix: defaultState.bulkHeaderRenameSuffix,
+                inputSectionCollapsed: false,
+                previewSectionCollapsed: true,
+                outputSectionCollapsed: true,
                 copyFeedback: defaultState.copyFeedback,
                 toasts: defaultState.toasts,
                 lastAutoCopiedOutput: defaultState.lastAutoCopiedOutput
@@ -280,6 +286,9 @@
                 originalStandardRowKeys: [],
                 previewColumnWidths: {},
                 previewColumnMenuKey: "",
+                previewColumnMenuTop: 0,
+                previewColumnMenuLeft: 0,
+                previewColumnMenuMaxHeight: 0,
                 rowConfigs: [],
                 columnConfigs: [],
                 draggedColumnKey: "",
@@ -1219,6 +1228,33 @@
                 return targetColumn ? targetColumn.enabled : true;
             }
 
+            function getColumnConfigByIndex(columnIndex) {
+                const columnKey = state.standardColumnKeys[columnIndex];
+                return state.columnConfigs.find(function (column) {
+                    return column.key === columnKey;
+                });
+            }
+
+            function getMenuColumnIndex() {
+                return state.standardColumnKeys.indexOf(state.previewColumnMenuKey);
+            }
+
+            function getMenuColumnConfig() {
+                return getColumnConfigByIndex(getMenuColumnIndex()) || {
+                    bulkFillMode: "set",
+                    bulkFillValue: "",
+                    bulkFillAuxValue: "",
+                    filterOperator: "",
+                    filterValue: "",
+                    filterValueTo: ""
+                };
+            }
+
+            function isColumnFiltered(columnIndex) {
+                const column = getColumnConfigByIndex(columnIndex);
+                return !!(column && column.filterOperator);
+            }
+
             function applyBulkHeaderRename() {
                 if (!state.standardHeaders.length) {
                     pushToast("Nao ha colunas para renomear.", "warning");
@@ -1268,7 +1304,28 @@
             }
 
             function togglePreviewColumnMenu(columnKey) {
-                state.previewColumnMenuKey = state.previewColumnMenuKey === columnKey ? "" : columnKey;
+                const event = arguments[1];
+
+                if (state.previewColumnMenuKey === columnKey) {
+                    state.previewColumnMenuKey = "";
+                    return;
+                }
+
+                if (event && event.currentTarget) {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const estimatedMenuHeight = 520;
+                    const openBelowTop = rect.bottom + 8;
+                    const openAboveTop = rect.top - estimatedMenuHeight - 8;
+                    const shouldOpenAbove = openBelowTop + estimatedMenuHeight > window.innerHeight - 16 && rect.top > window.innerHeight * 0.35;
+
+                    state.previewColumnMenuTop = shouldOpenAbove
+                        ? Math.max(16, openAboveTop)
+                        : Math.max(16, Math.min(window.innerHeight - 24, openBelowTop));
+                    state.previewColumnMenuLeft = Math.max(16, Math.min(window.innerWidth - 304, rect.right - 288));
+                    state.previewColumnMenuMaxHeight = Math.max(220, window.innerHeight - state.previewColumnMenuTop - 16);
+                }
+
+                state.previewColumnMenuKey = columnKey;
             }
 
             function startPreviewColumnResize(columnKey, event) {
@@ -1304,6 +1361,15 @@
                 return {
                     width: width + "px",
                     minWidth: width + "px"
+                };
+            }
+
+            function getPreviewColumnMenuStyle() {
+                return {
+                    position: "fixed",
+                    top: state.previewColumnMenuTop + "px",
+                    left: state.previewColumnMenuLeft + "px",
+                    maxHeight: state.previewColumnMenuMaxHeight + "px"
                 };
             }
 
@@ -1347,6 +1413,16 @@
                         nextValue = "";
                     } else if (column.bulkFillMode === "fill-empty") {
                         nextValue = currentValue.trim() === "" ? column.bulkFillValue : currentValue;
+                    } else if (column.bulkFillMode === "snake_case") {
+                        nextValue = toSnakeCase(currentValue);
+                    } else if (column.bulkFillMode === "camelCase") {
+                        nextValue = toCamelCase(currentValue);
+                    } else if (column.bulkFillMode === "remove-spaces") {
+                        nextValue = currentValue.replace(/\s+/g, "");
+                    } else if (column.bulkFillMode === "remove-accents") {
+                        nextValue = currentValue.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    } else if (column.bulkFillMode === "remove-special") {
+                        nextValue = currentValue.replace(/[^A-Za-z0-9\s]/g, "");
                     }
 
                     updateStandardCell(rowIndex, columnIndex, nextValue);
@@ -1539,10 +1615,17 @@
                     }
                 }
 
+                function onViewportChange() {
+                    state.previewColumnMenuKey = "";
+                }
+
                 window.addEventListener("keydown", onKeyDown);
                 window.addEventListener("click", onWindowClick);
+                window.addEventListener("scroll", onViewportChange, true);
+                window.addEventListener("resize", onViewportChange);
                 state._onWindowKeyDown = onKeyDown;
                 state._onWindowClick = onWindowClick;
+                state._onViewportChange = onViewportChange;
             });
 
             onBeforeUnmount(function () {
@@ -1551,6 +1634,10 @@
                 }
                 if (state._onWindowClick) {
                     window.removeEventListener("click", state._onWindowClick);
+                }
+                if (state._onViewportChange) {
+                    window.removeEventListener("scroll", state._onViewportChange, true);
+                    window.removeEventListener("resize", state._onViewportChange);
                 }
             });
 
@@ -1607,7 +1694,12 @@
                 togglePreviewColumnMenu,
                 startPreviewColumnResize,
                 getPreviewColumnStyle,
+                getPreviewColumnMenuStyle,
                 applyBulkFill,
+                getColumnConfigByIndex,
+                getMenuColumnIndex,
+                getMenuColumnConfig,
+                isColumnFiltered,
                 applyBulkHeaderRename,
                 dedupeStandardHeaders,
                 copyOutput,
@@ -1734,49 +1826,6 @@
                                                     </button>
                                                 </div>
                                             </div>
-                                        </div>
-
-                                        <div class="mb-3">
-                                            <label class="form-label fw-semibold">Colunas</label>
-                                            <div class="small text-secondary mb-2">Marque para incluir no resultado e arraste para reordenar.</div>
-                                            <div v-if="state.columnConfigs.length" class="d-grid gap-2">
-                                                <div
-                                                    v-for="column in state.columnConfigs"
-                                                    :key="column.key"
-                                                    class="column-item d-flex align-items-center gap-2 border rounded-3 px-2 py-2 bg-body"
-                                                    draggable="true"
-                                                    @dragstart="startColumnDrag(column.key)"
-                                                    @dragover.prevent
-                                                    @drop.prevent="dropColumn(column.key)"
-                                                    @dragend="endColumnDrag"
-                                                >
-                                                    <span class="column-grip text-secondary" title="Arrastar">::</span>
-                                                    <input :id="'column-' + column.key" class="form-check-input mt-0" type="checkbox" v-model="column.enabled">
-                                                    <div class="flex-grow-1">
-                                                        <label :for="'column-' + column.key" class="form-check-label small fw-semibold d-block mb-2">
-                                                            {{ column.header }}
-                                                        </label>
-                                                        <div class="row g-2">
-                                                            <div class="col-12" :class="showColumnTypeControl ? 'col-md-6' : 'col-md-12'">
-                                                                <input
-                                                                    class="form-control form-control-sm"
-                                                                    type="text"
-                                                                    v-model="column.outputName"
-                                                                    placeholder="Nome da coluna no output"
-                                                                >
-                                                            </div>
-                                                            <div v-if="showColumnTypeControl" class="col-12 col-md-6">
-                                                                <select class="form-select form-select-sm" v-model="column[currentTypeFieldKey]">
-                                                                    <option v-for="option in currentTypeOptions" :key="option.value" :value="option.value">
-                                                                        {{ option.label }}
-                                                                    </option>
-                                                                </select>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div v-else class="small text-secondary">Cole um texto no input para detectar as colunas.</div>
                                         </div>
 
                                         <div v-if="isXmlOutput" class="mb-3">
@@ -1929,7 +1978,7 @@
                                                 <thead>
                                                     <tr>
                                                         <th class="preview-actions-col">Acoes</th>
-                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]" :style="getPreviewColumnStyle(headerIndex)">
+                                                        <th v-for="(header, headerIndex) in standardObject.headers" :key="state.standardColumnKeys[headerIndex]" :style="getPreviewColumnStyle(headerIndex)" :class="{ 'preview-column-filtered': isColumnFiltered(headerIndex), 'preview-column-hidden': !isStandardColumnVisible(headerIndex) }">
                                                             <div
                                                                 class="preview-header-cell preview-column-menu-wrap"
                                                                 draggable="true"
@@ -1955,49 +2004,9 @@
                                                                     <button class="btn btn-outline-secondary" type="button" @click="cyclePreviewSort(headerIndex)" title="Ordenar preview">
                                                                         <i :class="getPreviewSortIcon(headerIndex)" aria-hidden="true"></i>
                                                                     </button>
-                                                                    <button class="btn btn-outline-secondary" type="button" @click.stop="togglePreviewColumnMenu(state.standardColumnKeys[headerIndex])" title="Opcoes da coluna">
+                                                                    <button class="btn btn-outline-secondary" type="button" @click.stop="togglePreviewColumnMenu(state.standardColumnKeys[headerIndex], $event)" title="Opcoes da coluna">
                                                                         <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
                                                                     </button>
-                                                                </div>
-                                                                <div v-if="state.previewColumnMenuKey === state.standardColumnKeys[headerIndex]" class="preview-column-menu" @click.stop>
-                                                                    <button class="btn btn-sm btn-outline-secondary w-100 mb-3" type="button" @click="toggleStandardColumnVisibility(headerIndex)">
-                                                                        <i :class="isStandardColumnVisible(headerIndex) ? 'fas fa-eye-slash me-2' : 'fas fa-eye me-2'" aria-hidden="true"></i>
-                                                                        {{ isStandardColumnVisible(headerIndex) ? 'Ocultar no output' : 'Exibir no output' }}
-                                                                    </button>
-                                                                    <div class="preview-column-menu-group">
-                                                                        <div class="small fw-semibold mb-2">Preenchimento em massa</div>
-                                                                        <select class="form-select form-select-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillMode">
-                                                                            <option value="set">Definir valor</option>
-                                                                            <option value="replace">Substituir texto</option>
-                                                                            <option value="prefix">Prefixo</option>
-                                                                            <option value="suffix">Sufixo</option>
-                                                                            <option value="uppercase">UPPERCASE</option>
-                                                                            <option value="lowercase">lowercase</option>
-                                                                            <option value="trim">Trim</option>
-                                                                            <option value="clear">Limpar</option>
-                                                                            <option value="fill-empty">Preencher vazios</option>
-                                                                        </select>
-                                                                        <input class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillValue" placeholder="Valor">
-                                                                        <input v-if="state.columnConfigs[headerIndex].bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].bulkFillAuxValue" placeholder="Substituir por">
-                                                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(headerIndex)">Aplicar</button>
-                                                                    </div>
-                                                                    <div class="preview-column-menu-group mt-3">
-                                                                        <div class="small fw-semibold mb-2">Filtros por coluna</div>
-                                                                        <select class="form-select form-select-sm mb-2" v-model="state.columnConfigs[headerIndex].filterOperator">
-                                                                            <option value="">Sem filtro</option>
-                                                                            <option value="contains">Contem</option>
-                                                                            <option value="equals">Igual</option>
-                                                                            <option value="starts-with">Comeca com</option>
-                                                                            <option value="ends-with">Termina com</option>
-                                                                            <option value="empty">Vazio</option>
-                                                                            <option value="not-empty">Nao vazio</option>
-                                                                            <option value="gt">Maior que</option>
-                                                                            <option value="lt">Menor que</option>
-                                                                            <option value="between">Entre</option>
-                                                                        </select>
-                                                                        <input v-if="['contains','equals','starts-with','ends-with','gt','lt','between'].includes(state.columnConfigs[headerIndex].filterOperator)" class="form-control form-control-sm mb-2" v-model="state.columnConfigs[headerIndex].filterValue" placeholder="Valor do filtro">
-                                                                        <input v-if="state.columnConfigs[headerIndex].filterOperator === 'between'" class="form-control form-control-sm" v-model="state.columnConfigs[headerIndex].filterValueTo" placeholder="Valor final">
-                                                                    </div>
                                                                 </div>
                                                                 <div class="preview-column-resize-handle" @mousedown="startPreviewColumnResize(state.standardColumnKeys[headerIndex], $event)"></div>
                                                             </div>
@@ -2008,6 +2017,7 @@
                                                     <tr
                                                         v-for="rowItem in paginatedPreviewRows"
                                                         :key="rowItem.key"
+                                                        :class="{ 'preview-row-hidden': !isStandardRowVisible(rowItem.rowIndex) }"
                                                         draggable="true"
                                                         @dragstart="startPreviewRowDrag(rowItem.rowIndex)"
                                                         @dragover.prevent
@@ -2036,13 +2046,18 @@
                                                                 </button>
                                                             </div>
                                                         </td>
-                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex" :style="getPreviewColumnStyle(cellIndex)">
+                                                        <td v-for="(header, cellIndex) in standardObject.headers" :key="rowItem.key + '-' + cellIndex" :style="getPreviewColumnStyle(cellIndex)" :class="{ 'preview-column-filtered': isColumnFiltered(cellIndex), 'preview-column-hidden': !isStandardColumnVisible(cellIndex) }">
                                                             <input
                                                                 class="form-control form-control-sm preview-input"
                                                                 :value="cellIndex < rowItem.row.length ? rowItem.row[cellIndex] : ''"
                                                                 @input="updateStandardCell(rowItem.rowIndex, cellIndex, $event.target.value)"
                                                                 placeholder="-"
                                                             >
+                                                        </td>
+                                                    </tr>
+                                                    <tr v-if="!paginatedPreviewRows.length">
+                                                        <td class="preview-empty-row" :colspan="standardObject.headers.length + 1">
+                                                            Nenhuma linha encontrada com os filtros atuais.
                                                         </td>
                                                     </tr>
                                                 </tbody>
@@ -2134,6 +2149,82 @@
                             </section>
                         </div>
                     </main>
+                </div>
+
+                <div
+                    v-if="state.previewColumnMenuKey"
+                    class="preview-column-menu"
+                    :style="getPreviewColumnMenuStyle()"
+                    @click.stop
+                >
+                    <button class="btn btn-sm btn-outline-secondary w-100 mb-3" type="button" @click="toggleStandardColumnVisibility(getMenuColumnIndex())">
+                        <i :class="isStandardColumnVisible(getMenuColumnIndex()) ? 'fas fa-eye-slash me-2' : 'fas fa-eye me-2'" aria-hidden="true"></i>
+                        {{ isStandardColumnVisible(getMenuColumnIndex()) ? 'Ocultar no output' : 'Exibir no output' }}
+                    </button>
+                                                                    <div class="preview-column-menu-group">
+                                                                        <div class="small fw-semibold mb-2">Preenchimento em massa</div>
+                                                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().bulkFillMode">
+                            <option value="set">Definir valor</option>
+                            <option value="replace">Substituir texto</option>
+                            <option value="prefix">Prefixo</option>
+                            <option value="suffix">Sufixo</option>
+                            <option value="uppercase">UPPERCASE</option>
+                            <option value="lowercase">lowercase</option>
+                            <option value="trim">Trim</option>
+                            <option value="clear">Limpar</option>
+                            <option value="fill-empty">Preencher vazios</option>
+                            <option value="snake_case">snake_case</option>
+                            <option value="camelCase">camelCase</option>
+                            <option value="remove-spaces">Remover espacos</option>
+                                                                            <option value="remove-accents">Remover acentos</option>
+                                                                            <option value="remove-special">Remover caracteres especiais</option>
+                                                                        </select>
+                                                                        <input
+                                                                            v-if="['set','replace','prefix','suffix','fill-empty'].includes(getMenuColumnConfig().bulkFillMode)"
+                                                                            class="form-control form-control-sm mb-2"
+                                                                            v-model="getMenuColumnConfig().bulkFillValue"
+                                                                            placeholder="Valor"
+                                                                        >
+                                                                        <input v-if="getMenuColumnConfig().bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().bulkFillAuxValue" placeholder="Substituir por">
+                                                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(getMenuColumnIndex())">Aplicar</button>
+                                                                    </div>
+                    <div v-if="showColumnTypeControl" class="preview-column-menu-group mt-3">
+                        <div class="small fw-semibold mb-2">Tipo da coluna</div>
+                        <select class="form-select form-select-sm" v-model="getMenuColumnConfig()[currentTypeFieldKey]">
+                            <option v-for="option in currentTypeOptions" :key="option.value" :value="option.value">
+                                {{ option.label }}
+                            </option>
+                        </select>
+                    </div>
+                                                                    <div class="preview-column-menu-group mt-3">
+                                                                        <div class="small fw-semibold mb-2">Filtros por coluna</div>
+                                                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().filterOperator">
+                            <option value="">Sem filtro</option>
+                            <option value="contains">Contem</option>
+                            <option value="equals">Igual</option>
+                            <option value="starts-with">Comeca com</option>
+                            <option value="ends-with">Termina com</option>
+                            <option value="empty">Vazio</option>
+                            <option value="not-empty">Nao vazio</option>
+                            <option value="gt">Maior que</option>
+                                                                            <option value="lt">Menor que</option>
+                                                                            <option value="between">Entre</option>
+                                                                        </select>
+                                                                        <div v-if="getMenuColumnConfig().filterOperator === 'between'" class="row g-2">
+                                                                            <div class="col-6">
+                                                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValue" placeholder="Valor inicial">
+                                                                            </div>
+                                                                            <div class="col-6">
+                                                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValueTo" placeholder="Valor final">
+                                                                            </div>
+                                                                        </div>
+                                                                        <input
+                                                                            v-else-if="['contains','equals','starts-with','ends-with','gt','lt'].includes(getMenuColumnConfig().filterOperator)"
+                                                                            class="form-control form-control-sm"
+                                                                            v-model="getMenuColumnConfig().filterValue"
+                                                                            placeholder="Valor do filtro"
+                                                                        >
+                                                                    </div>
                 </div>
             </div>
         `

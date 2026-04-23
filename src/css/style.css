@@ -487,6 +487,7 @@ html {
 
 .preview-actions-col {
     width: 1%;
+    min-width: 100px;
     white-space: nowrap;
 }
 
@@ -534,6 +535,25 @@ html {
     background: rgba(96, 165, 250, 0.04);
 }
 
+.preview-column-filtered {
+    box-shadow: inset 0 -2px 0 rgba(245, 158, 11, 0.75);
+}
+
+.preview-column-filtered .preview-input,
+.preview-column-filtered .input-group {
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+
+.preview-column-hidden {
+    opacity: 0.22;
+    background: rgba(0, 0, 0, 0.99) !important;
+}
+
+.preview-row-hidden td {
+    opacity: 0.22;
+    background: rgba(0, 0, 0, 0.99) !important;
+}
+
 .preview-table thead .input-group {
     border-bottom: 1px solid var(--ec-border);
     min-height: 43px;
@@ -543,7 +563,7 @@ html {
     position: absolute;
     top: calc(100% + 0.35rem);
     right: 0.35rem;
-    z-index: 12;
+    z-index: 1070;
     width: 18rem;
     padding: 0.85rem;
     border: 1px solid var(--ec-border);
@@ -551,10 +571,18 @@ html {
     background: color-mix(in srgb, var(--ec-panel) 96%, transparent);
     box-shadow: var(--ec-shadow);
     backdrop-filter: blur(12px);
+    overflow: auto;
 }
 
 .preview-column-menu-group {
     padding-top: 0.15rem;
+}
+
+.preview-empty-row {
+    padding: 1rem !important;
+    text-align: center !important;
+    color: var(--ec-muted);
+    height: 325px;
 }
 
 .preview-column-resize-handle {
