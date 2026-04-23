@@ -123,6 +123,11 @@
                 xmlRootTagName: "rows",
                 xmlRowTagName: "row",
                 sqlTableName: "ExcelConverter",
+                sqlAddCreateTable: true,
+                sqlAddIdentityInsert: false,
+                sqlAddTransaction: false,
+                sqlAddTruncate: false,
+                sqlConvertEmptyToNull: false,
                 autoCopyOutput: false,
                 columnConfigs: [],
                 draggedColumnKey: "",
@@ -382,6 +387,11 @@
                         {
                             columns: orderedColumns.value,
                             sqlTableName: state.sqlTableName,
+                            addCreateTable: state.sqlAddCreateTable,
+                            addIdentityInsert: state.sqlAddIdentityInsert,
+                            addTransaction: state.sqlAddTransaction,
+                            addTruncate: state.sqlAddTruncate,
+                            convertEmptyToNull: state.sqlConvertEmptyToNull,
                             xmlRootTagName: state.xmlRootTagName,
                             xmlRowTagName: state.xmlRowTagName
                         }
@@ -686,6 +696,31 @@
                                         <div v-if="isSqlOutput">
                                             <label for="sql-table-name" class="form-label fw-semibold">Tabela</label>
                                             <input id="sql-table-name" class="form-control" v-model="state.sqlTableName" placeholder="ExcelConverter">
+                                        </div>
+
+                                        <div v-if="isSqlOutput" class="form-check form-switch mt-3">
+                                            <input id="sql-create-table" class="form-check-input" type="checkbox" role="switch" v-model="state.sqlAddCreateTable">
+                                            <label class="form-check-label fw-semibold" for="sql-create-table">Adicionar CREATE TABLE</label>
+                                        </div>
+
+                                        <div v-if="isSqlOutput" class="form-check form-switch mt-3">
+                                            <input id="sql-identity-insert" class="form-check-input" type="checkbox" role="switch" v-model="state.sqlAddIdentityInsert">
+                                            <label class="form-check-label fw-semibold" for="sql-identity-insert">Adicionar IDENTITY_INSERT</label>
+                                        </div>
+
+                                        <div v-if="isSqlOutput" class="form-check form-switch mt-3">
+                                            <input id="sql-transaction" class="form-check-input" type="checkbox" role="switch" v-model="state.sqlAddTransaction">
+                                            <label class="form-check-label fw-semibold" for="sql-transaction">Adicionar TRANSACTION</label>
+                                        </div>
+
+                                        <div v-if="isSqlOutput" class="form-check form-switch mt-3">
+                                            <input id="sql-truncate" class="form-check-input" type="checkbox" role="switch" v-model="state.sqlAddTruncate">
+                                            <label class="form-check-label fw-semibold" for="sql-truncate">Adicionar TRUNCATE</label>
+                                        </div>
+
+                                        <div v-if="isSqlOutput" class="form-check form-switch mt-3">
+                                            <input id="sql-empty-null" class="form-check-input" type="checkbox" role="switch" v-model="state.sqlConvertEmptyToNull">
+                                            <label class="form-check-label fw-semibold" for="sql-empty-null">Converter valores vazios em NULL</label>
                                         </div>
                                     </div>
                                 </div>

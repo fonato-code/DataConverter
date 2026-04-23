@@ -30,9 +30,13 @@
         return "VARCHAR(255)";
     }
 
-    function formatSqlValue(value, utils) {
-        if (value === "") {
+    function formatSqlValue(value, utils, convertEmptyToNull) {
+        if (value === "" && convertEmptyToNull) {
             return "NULL";
+        }
+
+        if (value === "") {
+            return "''";
         }
 
         if (utils.isNumericValue(value)) {
@@ -42,7 +46,7 @@
         return "'" + utils.escapeSqlString(value) + "'";
     }
 
-    function buildSql(headers, rows, tableName, utils, columns) {
+    function buildSql(headers, rows, tableName, utils, columns, options) {
         const resolvedTableName = utils.sanitizeSqlIdentifier(tableName || "ExcelConverter");
         const columnDefinitions = headers.map(function (header, index) {
             const selectedColumn = columns[index];
@@ -56,20 +60,42 @@
         }).join(",");
         const values = rows.map(function (row) {
             return "\t(" + headers.map(function (_header, index) {
-                return formatSqlValue(index < row.length ? row[index] : "", utils);
+                return formatSqlValue(index < row.length ? row[index] : "", utils, options.convertEmptyToNull);
             }).join(",") + ")";
         }).join(",\n");
 
-        return [
-            "CREATE TABLE " + resolvedTableName + " (",
-            "\tid INT NOT NULL AUTO_INCREMENT PRIMARY KEY,",
-            columnDefinitions.join(",\n"),
-            ");",
+        const statements = [
+            options.addCreateTable ? [
+                "CREATE TABLE " + resolvedTableName + " (",
+                columnDefinitions.join(",\n"),
+                ");"
+            ].join("\n") : "",
+            options.addTruncate ? "TRUNCATE TABLE " + resolvedTableName + ";" : "",
+            options.addIdentityInsert ? "SET IDENTITY_INSERT " + resolvedTableName + " ON;" : "",
             "INSERT INTO " + resolvedTableName,
             "\t(" + insertColumns + ")",
             "VALUES",
-            values + ";"
-        ].join("\n");
+            values + ";",
+            options.addIdentityInsert ? "SET IDENTITY_INSERT " + resolvedTableName + " OFF;" : ""
+        ].filter(Boolean).join("\n");
+
+        if (options.addTransaction) {
+            return [
+                "BEGIN TRY",
+                "\tBEGIN TRANSACTION",
+                statements.split("\n").map(function (line) {
+                    return "\t" + line;
+                }).join("\n"),
+                "\tCOMMIT",
+                "END TRY",
+                "BEGIN CATCH",
+                "\tPRINT ('Ocorreu um erro ao executar a TRANSACTION')",
+                "\tROLLBACK",
+                "END CATCH"
+            ].join("\n");
+        }
+
+        return statements;
     }
 
     window.ExcelConverterOutputFormats.push({
@@ -79,6 +105,6 @@
     });
 
     window.ExcelConverterOutputBuilders.sql = function (context) {
-        return buildSql(context.headers, context.rows, context.options.sqlTableName, context.utils, context.columns);
+        return buildSql(context.headers, context.rows, context.options.sqlTableName, context.utils, context.columns, context.options);
     };
 })();
