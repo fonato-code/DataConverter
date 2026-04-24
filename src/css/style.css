@@ -20,6 +20,8 @@
     --ec-output-panel-top: rgba(17, 184, 166, 0.08);
     --ec-focus-ring: rgba(53, 92, 255, 0.12);
     --ec-button-bg: rgba(255, 255, 255, 0.72);
+    --bs-accordion-active-bg: #0b3b86db;
+    --bs-accordion-bg: rgb(0 0 0 / 5%);
 }
 
 :root[data-theme="dark"] {
@@ -570,6 +572,24 @@ html {
     box-shadow: var(--ec-shadow);
     backdrop-filter: blur(12px);
     overflow: auto;
+}
+
+/* Menu da coluna: acordeão compacto; cores vêm de data-bs-theme (sincronizado com data-theme) */
+.preview-column-menu-accordion.accordion-flush .accordion-button {
+    padding: 0.5rem 0.85rem;
+    font-size: 0.875rem;
+}
+
+.preview-column-menu-accordion.accordion-flush .accordion-body {
+    padding: 0.75rem 0.85rem 1rem;
+}
+
+.preview-column-menu .accordion-item {
+    border-color: var(--bs-border-color);
+}
+
+.preview-column-menu .small.fw-semibold {
+    color: var(--bs-body-color);
 }
 
 .preview-column-menu-group {

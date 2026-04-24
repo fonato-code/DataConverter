@@ -331,6 +331,7 @@
                 return state.theme;
             }, function (theme) {
                 document.documentElement.setAttribute("data-theme", theme);
+                document.documentElement.setAttribute("data-bs-theme", theme === "dark" ? "dark" : "light");
             }, { immediate: true });
 
             watch(function () {
@@ -2463,100 +2464,188 @@
                     :style="getPreviewColumnMenuStyle()"
                     @click.stop
                 >
-                    <button class="btn btn-sm btn-outline-secondary w-100 mb-3" type="button" @click="toggleStandardColumnVisibility(getMenuColumnIndex())">
-                        <i :class="isStandardColumnVisible(getMenuColumnIndex()) ? 'fas fa-eye-slash me-2' : 'fas fa-eye me-2'" aria-hidden="true"></i>
-                        {{ isStandardColumnVisible(getMenuColumnIndex()) ? 'Ocultar no output' : 'Exibir no output' }}
-                    </button>
-                                                                    <div class="preview-column-menu-group">
-                                                                        <div class="small fw-semibold mb-2">Preenchimento em massa</div>
-                                                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().bulkFillMode">
-                            <option value="set">Definir valor</option>
-                            <option value="replace">Substituir texto</option>
-                            <option value="prefix">Prefixo</option>
-                            <option value="suffix">Sufixo</option>
-                            <option value="uppercase">UPPERCASE</option>
-                            <option value="lowercase">lowercase</option>
-                            <option value="trim">Trim</option>
-                            <option value="clear">Limpar</option>
-                            <option value="fill-empty">Preencher vazios</option>
-                            <option value="snake_case">snake_case</option>
-                            <option value="camelCase">camelCase</option>
-                            <option value="remove-spaces">Remover espacos</option>
-                                                                            <option value="remove-accents">Remover acentos</option>
-                                                                            <option value="remove-special">Remover caracteres especiais</option>
-                                                                        </select>
-                                                                        <input
-                                                                            v-if="['set','replace','prefix','suffix','fill-empty'].includes(getMenuColumnConfig().bulkFillMode)"
-                                                                            class="form-control form-control-sm mb-2"
-                                                                            v-model="getMenuColumnConfig().bulkFillValue"
-                                                                            placeholder="Valor"
-                                                                        >
-                                                                        <input v-if="getMenuColumnConfig().bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().bulkFillAuxValue" placeholder="Substituir por">
-                                                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(getMenuColumnIndex())">Aplicar</button>
-                                                                    </div>
-                    <div class="preview-column-menu-group mt-3">
-                        <div class="small fw-semibold mb-2">Mesclar colunas</div>
-                        <div class="preview-menu-checkbox-list mb-2">
-                            <label v-for="column in availableColumns" :key="'merge-' + column.key" class="preview-menu-checkbox-item">
-                                <input class="form-check-input" type="checkbox" :value="column.key" v-model="getMenuColumnConfig().mergeSourceKeys">
-                                <span>{{ column.header || 'Coluna sem nome' }}</span>
-                            </label>
+                    <div class="accordion accordion-flush preview-column-menu-accordion" id="previewColumnMenuAccordion">
+                        <div class="accordion-item">
+                            <h2 id="pcMenuPropriedadesHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuPropriedades"
+                                    aria-expanded="true"
+                                    aria-controls="pcMenuPropriedades"
+                                >
+                                    Propriedades
+                                </button>
+                            </h2>
+                            <div id="pcMenuPropriedades" class="accordion-collapse collapse show" aria-labelledby="pcMenuPropriedadesHeading">
+                                <div class="accordion-body">
+                                    <button class="btn btn-sm btn-outline-secondary w-100 mb-3" type="button" @click="toggleStandardColumnVisibility(getMenuColumnIndex())">
+                                        <i :class="isStandardColumnVisible(getMenuColumnIndex()) ? 'fas fa-eye-slash me-2' : 'fas fa-eye me-2'" aria-hidden="true"></i>
+                                        {{ isStandardColumnVisible(getMenuColumnIndex()) ? 'Ocultar no output' : 'Exibir no output' }}
+                                    </button>
+                                    <div v-if="showColumnTypeControl" class="preview-column-menu-group">
+                                        <div class="small fw-semibold mb-2">Tipo da coluna</div>
+                                        <select class="form-select form-select-sm" v-model="getMenuColumnConfig()[currentTypeFieldKey]">
+                                            <option v-for="option in currentTypeOptions" :key="option.value" :value="option.value">
+                                                {{ option.label }}
+                                            </option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeTargetName" placeholder="Nome da nova coluna">
-                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeSeparator" placeholder="Separador">
-                        <label class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().mergeRemoveOriginals">
-                            <span class="form-check-label">Remover colunas originais</span>
-                        </label>
-                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnMerge(getMenuColumnIndex())">Mesclar</button>
+                        <div class="accordion-item">
+                            <h2 id="pcMenuBulkFillHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button collapsed"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuBulkFill"
+                                    aria-expanded="false"
+                                    aria-controls="pcMenuBulkFill"
+                                >
+                                    Preenchimento em massa
+                                </button>
+                            </h2>
+                            <div id="pcMenuBulkFill" class="accordion-collapse collapse" aria-labelledby="pcMenuBulkFillHeading">
+                                <div class="accordion-body">
+                                    <div class="preview-column-menu-group">
+                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().bulkFillMode">
+                                            <option value="set">Definir valor</option>
+                                            <option value="replace">Substituir texto</option>
+                                            <option value="prefix">Prefixo</option>
+                                            <option value="suffix">Sufixo</option>
+                                            <option value="uppercase">UPPERCASE</option>
+                                            <option value="lowercase">lowercase</option>
+                                            <option value="trim">Trim</option>
+                                            <option value="clear">Limpar</option>
+                                            <option value="fill-empty">Preencher vazios</option>
+                                            <option value="snake_case">snake_case</option>
+                                            <option value="camelCase">camelCase</option>
+                                            <option value="remove-spaces">Remover espacos</option>
+                                            <option value="remove-accents">Remover acentos</option>
+                                            <option value="remove-special">Remover caracteres especiais</option>
+                                        </select>
+                                        <input
+                                            v-if="['set','replace','prefix','suffix','fill-empty'].includes(getMenuColumnConfig().bulkFillMode)"
+                                            class="form-control form-control-sm mb-2"
+                                            v-model="getMenuColumnConfig().bulkFillValue"
+                                            placeholder="Valor"
+                                        >
+                                        <input v-if="getMenuColumnConfig().bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().bulkFillAuxValue" placeholder="Substituir por">
+                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(getMenuColumnIndex())">Aplicar</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 id="pcMenuMergeHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button collapsed"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuMerge"
+                                    aria-expanded="false"
+                                    aria-controls="pcMenuMerge"
+                                >
+                                    Mesclar colunas
+                                </button>
+                            </h2>
+                            <div id="pcMenuMerge" class="accordion-collapse collapse" aria-labelledby="pcMenuMergeHeading">
+                                <div class="accordion-body">
+                                    <div class="preview-column-menu-group">
+                                        <div class="preview-menu-checkbox-list mb-2">
+                                            <label v-for="column in availableColumns" :key="'merge-' + column.key" class="preview-menu-checkbox-item">
+                                                <input class="form-check-input" type="checkbox" :value="column.key" v-model="getMenuColumnConfig().mergeSourceKeys">
+                                                <span>{{ column.header || 'Coluna sem nome' }}</span>
+                                            </label>
+                                        </div>
+                                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeTargetName" placeholder="Nome da nova coluna">
+                                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().mergeSeparator" placeholder="Separador">
+                                        <label class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().mergeRemoveOriginals">
+                                            <span class="form-check-label">Remover colunas originais</span>
+                                        </label>
+                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnMerge(getMenuColumnIndex())">Mesclar</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 id="pcMenuSplitHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button collapsed"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuSplit"
+                                    aria-expanded="false"
+                                    aria-controls="pcMenuSplit"
+                                >
+                                    Dividir colunas
+                                </button>
+                            </h2>
+                            <div id="pcMenuSplit" class="accordion-collapse collapse" aria-labelledby="pcMenuSplitHeading">
+                                <div class="accordion-body">
+                                    <div class="preview-column-menu-group">
+                                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitDelimiter" placeholder="Delimitador">
+                                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitTargetNames" placeholder="Nomes das novas colunas, separados por virgula">
+                                        <label class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().splitRemoveOriginal">
+                                            <span class="form-check-label">Remover coluna original</span>
+                                        </label>
+                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnSplit(getMenuColumnIndex())">Dividir</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
+                            <h2 id="pcMenuFiltersHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button collapsed"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuFilters"
+                                    aria-expanded="false"
+                                    aria-controls="pcMenuFilters"
+                                >
+                                    Filtros por coluna
+                                </button>
+                            </h2>
+                            <div id="pcMenuFilters" class="accordion-collapse collapse" aria-labelledby="pcMenuFiltersHeading">
+                                <div class="accordion-body">
+                                    <div class="preview-column-menu-group">
+                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().filterOperator">
+                                            <option value="">Sem filtro</option>
+                                            <option value="contains">Contem</option>
+                                            <option value="equals">Igual</option>
+                                            <option value="starts-with">Comeca com</option>
+                                            <option value="ends-with">Termina com</option>
+                                            <option value="empty">Vazio</option>
+                                            <option value="not-empty">Nao vazio</option>
+                                            <option value="gt">Maior que</option>
+                                            <option value="lt">Menor que</option>
+                                            <option value="between">Entre</option>
+                                        </select>
+                                        <div v-if="getMenuColumnConfig().filterOperator === 'between'" class="row g-2">
+                                            <div class="col-6">
+                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValue" placeholder="Valor inicial">
+                                            </div>
+                                            <div class="col-6">
+                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValueTo" placeholder="Valor final">
+                                            </div>
+                                        </div>
+                                        <input
+                                            v-else-if="['contains','equals','starts-with','ends-with','gt','lt'].includes(getMenuColumnConfig().filterOperator)"
+                                            class="form-control form-control-sm"
+                                            v-model="getMenuColumnConfig().filterValue"
+                                            placeholder="Valor do filtro"
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="preview-column-menu-group mt-3">
-                        <div class="small fw-semibold mb-2">Dividir coluna</div>
-                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitDelimiter" placeholder="Delimitador">
-                        <input class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().splitTargetNames" placeholder="Nomes das novas colunas, separados por virgula">
-                        <label class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" v-model="getMenuColumnConfig().splitRemoveOriginal">
-                            <span class="form-check-label">Remover coluna original</span>
-                        </label>
-                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyColumnSplit(getMenuColumnIndex())">Dividir</button>
-                    </div>
-                    <div v-if="showColumnTypeControl" class="preview-column-menu-group mt-3">
-                        <div class="small fw-semibold mb-2">Tipo da coluna</div>
-                        <select class="form-select form-select-sm" v-model="getMenuColumnConfig()[currentTypeFieldKey]">
-                            <option v-for="option in currentTypeOptions" :key="option.value" :value="option.value">
-                                {{ option.label }}
-                            </option>
-                        </select>
-                    </div>
-                                                                    <div class="preview-column-menu-group mt-3">
-                                                                        <div class="small fw-semibold mb-2">Filtros por coluna</div>
-                                                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().filterOperator">
-                            <option value="">Sem filtro</option>
-                            <option value="contains">Contem</option>
-                            <option value="equals">Igual</option>
-                            <option value="starts-with">Comeca com</option>
-                            <option value="ends-with">Termina com</option>
-                            <option value="empty">Vazio</option>
-                            <option value="not-empty">Nao vazio</option>
-                            <option value="gt">Maior que</option>
-                                                                            <option value="lt">Menor que</option>
-                                                                            <option value="between">Entre</option>
-                                                                        </select>
-                                                                        <div v-if="getMenuColumnConfig().filterOperator === 'between'" class="row g-2">
-                                                                            <div class="col-6">
-                                                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValue" placeholder="Valor inicial">
-                                                                            </div>
-                                                                            <div class="col-6">
-                                                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().filterValueTo" placeholder="Valor final">
-                                                                            </div>
-                                                                        </div>
-                                                                        <input
-                                                                            v-else-if="['contains','equals','starts-with','ends-with','gt','lt'].includes(getMenuColumnConfig().filterOperator)"
-                                                                            class="form-control form-control-sm"
-                                                                            v-model="getMenuColumnConfig().filterValue"
-                                                                            placeholder="Valor do filtro"
-                                                                        >
-                                                                    </div>
                 </div>
             </div>
         `
