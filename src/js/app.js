@@ -262,6 +262,157 @@
                 return String(value || "");
             }
 
+            function padDatePart(value) {
+                return String(value).padStart(2, "0");
+            }
+
+            function normalizeNumericString(value, locale) {
+                const trimmed = String(value || "").trim().replace(/\s+/g, "");
+                if (!trimmed) {
+                    return null;
+                }
+
+                if (locale === "pt-BR") {
+                    const normalized = trimmed.replace(/\./g, "").replace(",", ".");
+                    const parsed = Number(normalized);
+                    return Number.isFinite(parsed) ? parsed : null;
+                }
+
+                if (locale === "en-US") {
+                    const normalized = trimmed.replace(/,/g, "");
+                    const parsed = Number(normalized);
+                    return Number.isFinite(parsed) ? parsed : null;
+                }
+
+                const hasComma = trimmed.indexOf(",") !== -1;
+                const hasDot = trimmed.indexOf(".") !== -1;
+
+                if (hasComma && hasDot) {
+                    const lastComma = trimmed.lastIndexOf(",");
+                    const lastDot = trimmed.lastIndexOf(".");
+                    const decimalSeparator = lastComma > lastDot ? "," : ".";
+                    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+                    const normalized = trimmed.split(thousandsSeparator).join("").replace(decimalSeparator, ".");
+                    const parsed = Number(normalized);
+                    return Number.isFinite(parsed) ? parsed : null;
+                }
+
+                if (hasComma) {
+                    const commaOccurrences = (trimmed.match(/,/g) || []).length;
+                    const normalized = commaOccurrences > 1 ? trimmed.replace(/,/g, "") : trimmed.replace(",", ".");
+                    const parsed = Number(normalized);
+                    return Number.isFinite(parsed) ? parsed : null;
+                }
+
+                const parsed = Number(trimmed);
+                return Number.isFinite(parsed) ? parsed : null;
+            }
+
+            function formatNumericByLocale(value, locale) {
+                if (!Number.isFinite(value)) {
+                    return "";
+                }
+
+                if (locale === "pt-BR") {
+                    return new Intl.NumberFormat("pt-BR", {
+                        useGrouping: false,
+                        maximumFractionDigits: 20
+                    }).format(value);
+                }
+
+                if (locale === "en-US") {
+                    return new Intl.NumberFormat("en-US", {
+                        useGrouping: false,
+                        maximumFractionDigits: 20
+                    }).format(value);
+                }
+
+                return String(value);
+            }
+
+            function parseDateByFormat(value, format) {
+                const trimmed = String(value || "").trim();
+                if (!trimmed) {
+                    return null;
+                }
+
+                const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+                const dmyMatch = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+
+                function buildDateParts(year, month, day, hour, minute, second) {
+                    const parsedYear = Number(year);
+                    const parsedMonth = Number(month);
+                    const parsedDay = Number(day);
+                    const parsedHour = Number(hour || 0);
+                    const parsedMinute = Number(minute || 0);
+                    const parsedSecond = Number(second || 0);
+
+                    if (!parsedYear || parsedMonth < 1 || parsedMonth > 12 || parsedDay < 1 || parsedDay > 31) {
+                        return null;
+                    }
+
+                    return {
+                        year: parsedYear,
+                        month: parsedMonth,
+                        day: parsedDay,
+                        hour: parsedHour,
+                        minute: parsedMinute,
+                        second: parsedSecond
+                    };
+                }
+
+                if ((format === "auto" || format === "yyyy-mm-dd" || format === "iso-datetime") && isoMatch) {
+                    return buildDateParts(isoMatch[1], isoMatch[2], isoMatch[3], isoMatch[4], isoMatch[5], isoMatch[6]);
+                }
+
+                if (dmyMatch) {
+                    if (format === "dd/mm/yyyy" || format === "dd/mm/yyyy hh:mm" || format === "auto") {
+                        return buildDateParts(dmyMatch[3], dmyMatch[2], dmyMatch[1], dmyMatch[4], dmyMatch[5], dmyMatch[6]);
+                    }
+
+                    if (format === "mm/dd/yyyy" || format === "mm/dd/yyyy hh:mm") {
+                        return buildDateParts(dmyMatch[3], dmyMatch[1], dmyMatch[2], dmyMatch[4], dmyMatch[5], dmyMatch[6]);
+                    }
+                }
+
+                return null;
+            }
+
+            function formatDateByFormat(parts, format) {
+                if (!parts) {
+                    return "";
+                }
+
+                const yyyy = String(parts.year);
+                const mm = padDatePart(parts.month);
+                const dd = padDatePart(parts.day);
+                const hh = padDatePart(parts.hour || 0);
+                const mi = padDatePart(parts.minute || 0);
+                const ss = padDatePart(parts.second || 0);
+
+                if (format === "dd/mm/yyyy") {
+                    return dd + "/" + mm + "/" + yyyy;
+                }
+
+                if (format === "mm/dd/yyyy") {
+                    return mm + "/" + dd + "/" + yyyy;
+                }
+
+                if (format === "dd/mm/yyyy hh:mm") {
+                    return dd + "/" + mm + "/" + yyyy + " " + hh + ":" + mi;
+                }
+
+                if (format === "mm/dd/yyyy hh:mm") {
+                    return mm + "/" + dd + "/" + yyyy + " " + hh + ":" + mi;
+                }
+
+                if (format === "iso-datetime") {
+                    return yyyy + "-" + mm + "-" + dd + "T" + hh + ":" + mi + ":" + ss;
+                }
+
+                return yyyy + "-" + mm + "-" + dd;
+            }
+
             function escapeSelectorToken(value) {
                 if (window.CSS && typeof window.CSS.escape === "function") {
                     return window.CSS.escape(String(value));
@@ -554,6 +705,21 @@
                         return Number.isFinite(numericValue) && Number.isFinite(numericFilter) && Number.isFinite(numericFilterTo) && numericValue >= numericFilter && numericValue <= numericFilterTo;
                     }
 
+                    if (column.filterOperator === "duplicates") {
+                        const duplicateToken = normalizedValue.trim();
+                        if (!duplicateToken) {
+                            return false;
+                        }
+
+                        const duplicateCount = availableRows.value.reduce(function (count, currentRowItem) {
+                            const currentRaw = column.sourceIndex < currentRowItem.row.length ? currentRowItem.row[column.sourceIndex] : "";
+                            const currentToken = String(currentRaw === undefined || currentRaw === null ? "" : currentRaw).toLowerCase().trim();
+                            return currentToken === duplicateToken ? count + 1 : count;
+                        }, 0);
+
+                        return duplicateCount > 1;
+                    }
+
                     return true;
                 }
 
@@ -663,13 +829,20 @@
                             bulkFillMode: column.bulkFillMode,
                             bulkFillValue: column.bulkFillValue,
                             bulkFillAuxValue: column.bulkFillAuxValue,
+                            bulkFillSequenceStart: column.bulkFillSequenceStart,
+                            bulkFillSequenceStep: column.bulkFillSequenceStep,
                             mergeTargetName: column.mergeTargetName,
                             mergeSeparator: column.mergeSeparator,
                             mergeSourceKeys: Array.isArray(column.mergeSourceKeys) ? column.mergeSourceKeys.slice() : [],
                             mergeRemoveOriginals: column.mergeRemoveOriginals,
                             splitDelimiter: column.splitDelimiter,
                             splitTargetNames: column.splitTargetNames,
-                            splitRemoveOriginal: column.splitRemoveOriginal
+                            splitRemoveOriginal: column.splitRemoveOriginal,
+                            localeNormalizeMode: column.localeNormalizeMode,
+                            localeNumberInput: column.localeNumberInput,
+                            localeNumberOutput: column.localeNumberOutput,
+                            localeDateInput: column.localeDateInput,
+                            localeDateOutput: column.localeDateOutput
                         };
                     });
 
@@ -693,13 +866,20 @@
                             bulkFillMode: previous ? previous.bulkFillMode : "set",
                             bulkFillValue: previous ? previous.bulkFillValue : "",
                             bulkFillAuxValue: previous ? previous.bulkFillAuxValue : "",
+                            bulkFillSequenceStart: previous ? previous.bulkFillSequenceStart : "1",
+                            bulkFillSequenceStep: previous ? previous.bulkFillSequenceStep : "1",
                             mergeTargetName: previous ? previous.mergeTargetName : column.header,
                             mergeSeparator: previous ? previous.mergeSeparator : " ",
                             mergeSourceKeys: previous && Array.isArray(previous.mergeSourceKeys) ? previous.mergeSourceKeys.slice() : [column.key],
                             mergeRemoveOriginals: previous ? previous.mergeRemoveOriginals : false,
                             splitDelimiter: previous ? previous.splitDelimiter : ",",
                             splitTargetNames: previous ? previous.splitTargetNames : "",
-                            splitRemoveOriginal: previous ? previous.splitRemoveOriginal : false
+                            splitRemoveOriginal: previous ? previous.splitRemoveOriginal : false,
+                            localeNormalizeMode: previous ? previous.localeNormalizeMode : "number",
+                            localeNumberInput: previous ? previous.localeNumberInput : "auto",
+                            localeNumberOutput: previous ? previous.localeNumberOutput : "raw",
+                            localeDateInput: previous ? previous.localeDateInput : "auto",
+                            localeDateOutput: previous ? previous.localeDateOutput : "yyyy-mm-dd"
                         };
                     });
 
@@ -718,13 +898,20 @@
                         bulkFillMode: column.bulkFillMode || "set",
                         bulkFillValue: column.bulkFillValue || "",
                         bulkFillAuxValue: column.bulkFillAuxValue || "",
+                        bulkFillSequenceStart: column.bulkFillSequenceStart === undefined ? "1" : String(column.bulkFillSequenceStart),
+                        bulkFillSequenceStep: column.bulkFillSequenceStep === undefined ? "1" : String(column.bulkFillSequenceStep),
                         mergeTargetName: column.mergeTargetName || column.header,
                         mergeSeparator: column.mergeSeparator === undefined ? " " : column.mergeSeparator,
                         mergeSourceKeys: Array.isArray(column.mergeSourceKeys) && column.mergeSourceKeys.length ? column.mergeSourceKeys.slice() : [column.key],
                         mergeRemoveOriginals: Boolean(column.mergeRemoveOriginals),
                         splitDelimiter: column.splitDelimiter === undefined ? "," : column.splitDelimiter,
                         splitTargetNames: column.splitTargetNames || "",
-                        splitRemoveOriginal: Boolean(column.splitRemoveOriginal)
+                        splitRemoveOriginal: Boolean(column.splitRemoveOriginal),
+                        localeNormalizeMode: column.localeNormalizeMode || "number",
+                        localeNumberInput: column.localeNumberInput || "auto",
+                        localeNumberOutput: column.localeNumberOutput || "raw",
+                        localeDateInput: column.localeDateInput || "auto",
+                        localeDateOutput: column.localeDateOutput || "yyyy-mm-dd"
                     };
                 });
             }, { immediate: true });
@@ -1391,6 +1578,8 @@
                     bulkFillMode: "set",
                     bulkFillValue: "",
                     bulkFillAuxValue: "",
+                    bulkFillSequenceStart: "1",
+                    bulkFillSequenceStep: "1",
                     filterOperator: "",
                     filterValue: "",
                     filterValueTo: "",
@@ -1400,7 +1589,12 @@
                     mergeRemoveOriginals: false,
                     splitDelimiter: ",",
                     splitTargetNames: "",
-                    splitRemoveOriginal: false
+                    splitRemoveOriginal: false,
+                    localeNormalizeMode: "number",
+                    localeNumberInput: "auto",
+                    localeNumberOutput: "raw",
+                    localeDateInput: "auto",
+                    localeDateOutput: "yyyy-mm-dd"
                 };
             }
 
@@ -1646,6 +1840,23 @@
                     return rowItem.rowIndex;
                 });
 
+                if (column.bulkFillMode === "numeric-sequence") {
+                    const start = Number(column.bulkFillSequenceStart);
+                    const step = Number(column.bulkFillSequenceStep);
+
+                    if (!Number.isFinite(start) || !Number.isFinite(step)) {
+                        pushToast("Informe valor inicial e incremento numericos.", "warning");
+                        return;
+                    }
+
+                    targetRowIndexes.forEach(function (rowIndex, sequenceIndex) {
+                        updateStandardCell(rowIndex, columnIndex, String(start + (step * sequenceIndex)));
+                    });
+
+                    pushToast("Sequencia numerica aplicada na coluna.", "success");
+                    return;
+                }
+
                 targetRowIndexes.forEach(function (rowIndex) {
                     const currentValue = String(
                         columnIndex < state.standardRows[rowIndex].length && state.standardRows[rowIndex][columnIndex] !== undefined && state.standardRows[rowIndex][columnIndex] !== null
@@ -1688,6 +1899,60 @@
                 });
 
                 pushToast("Preenchimento em massa aplicado na coluna.", "success");
+            }
+
+            function applyLocaleNormalization(columnIndex) {
+                const column = getColumnConfigByIndex(columnIndex);
+                if (!column) {
+                    return;
+                }
+
+                const targetRowIndexes = filteredPreviewRows.value.map(function (rowItem) {
+                    return rowItem.rowIndex;
+                });
+                let changedCount = 0;
+                let skippedCount = 0;
+
+                targetRowIndexes.forEach(function (rowIndex) {
+                    const currentValue = columnIndex < state.standardRows[rowIndex].length
+                        ? String(state.standardRows[rowIndex][columnIndex] === undefined || state.standardRows[rowIndex][columnIndex] === null ? "" : state.standardRows[rowIndex][columnIndex])
+                        : "";
+
+                    if (!currentValue.trim()) {
+                        return;
+                    }
+
+                    if (column.localeNormalizeMode === "number") {
+                        const parsedNumber = normalizeNumericString(currentValue, column.localeNumberInput);
+                        if (!Number.isFinite(parsedNumber)) {
+                            skippedCount += 1;
+                            return;
+                        }
+
+                        updateStandardCell(rowIndex, columnIndex, formatNumericByLocale(parsedNumber, column.localeNumberOutput));
+                        changedCount += 1;
+                        return;
+                    }
+
+                    const parsedDate = parseDateByFormat(currentValue, column.localeDateInput);
+                    if (!parsedDate) {
+                        skippedCount += 1;
+                        return;
+                    }
+
+                    updateStandardCell(rowIndex, columnIndex, formatDateByFormat(parsedDate, column.localeDateOutput));
+                    changedCount += 1;
+                });
+
+                if (!changedCount && skippedCount) {
+                    pushToast("Nenhum valor compativel foi normalizado nesta coluna.", "warning");
+                    return;
+                }
+
+                pushToast(
+                    "Normalizacao aplicada: " + changedCount + " valor(es) alterado(s)" + (skippedCount ? ", " + skippedCount + " ignorado(s)." : "."),
+                    "success"
+                );
             }
 
             function moveColumn(draggedKey, targetKey) {
@@ -1998,6 +2263,7 @@
                 getPreviewColumnStyle,
                 getPreviewColumnMenuStyle,
                 applyBulkFill,
+                applyLocaleNormalization,
                 getColumnConfigByIndex,
                 getMenuColumnIndex,
                 getMenuColumnConfig,
@@ -2516,6 +2782,7 @@
                                             <option value="replace">Substituir texto</option>
                                             <option value="prefix">Prefixo</option>
                                             <option value="suffix">Sufixo</option>
+                                            <option value="numeric-sequence">Sequencia numerica</option>
                                             <option value="uppercase">UPPERCASE</option>
                                             <option value="lowercase">lowercase</option>
                                             <option value="trim">Trim</option>
@@ -2533,6 +2800,14 @@
                                             v-model="getMenuColumnConfig().bulkFillValue"
                                             placeholder="Valor"
                                         >
+                                        <div v-if="getMenuColumnConfig().bulkFillMode === 'numeric-sequence'" class="row g-2 mb-2">
+                                            <div class="col-6">
+                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().bulkFillSequenceStart" placeholder="Valor inicial">
+                                            </div>
+                                            <div class="col-6">
+                                                <input class="form-control form-control-sm" v-model="getMenuColumnConfig().bulkFillSequenceStep" placeholder="Incremento">
+                                            </div>
+                                        </div>
                                         <input v-if="getMenuColumnConfig().bulkFillMode === 'replace'" class="form-control form-control-sm mb-2" v-model="getMenuColumnConfig().bulkFillAuxValue" placeholder="Substituir por">
                                         <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyBulkFill(getMenuColumnIndex())">Aplicar</button>
                                     </div>
@@ -2600,6 +2875,67 @@
                             </div>
                         </div>
                         <div class="accordion-item">
+                            <h2 id="pcMenuLocaleHeading" class="accordion-header">
+                                <button
+                                    class="accordion-button collapsed"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#pcMenuLocale"
+                                    aria-expanded="false"
+                                    aria-controls="pcMenuLocale"
+                                >
+                                    Normalizacao por locale
+                                </button>
+                            </h2>
+                            <div id="pcMenuLocale" class="accordion-collapse collapse" aria-labelledby="pcMenuLocaleHeading">
+                                <div class="accordion-body">
+                                    <div class="preview-column-menu-group">
+                                        <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().localeNormalizeMode">
+                                            <option value="number">Numeros</option>
+                                            <option value="date">Datas</option>
+                                        </select>
+
+                                        <template v-if="getMenuColumnConfig().localeNormalizeMode === 'number'">
+                                            <div class="small text-secondary mb-2">Converte a leitura e a escrita numerica por padrao regional.</div>
+                                            <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().localeNumberInput">
+                                                <option value="auto">Entrada: Auto</option>
+                                                <option value="pt-BR">Entrada: pt-BR</option>
+                                                <option value="en-US">Entrada: en-US</option>
+                                            </select>
+                                            <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().localeNumberOutput">
+                                                <option value="raw">Saida: valor bruto</option>
+                                                <option value="pt-BR">Saida: pt-BR</option>
+                                                <option value="en-US">Saida: en-US</option>
+                                            </select>
+                                        </template>
+
+                                        <template v-else>
+                                            <div class="small text-secondary mb-2">Padroniza datas da coluna para o formato desejado.</div>
+                                            <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().localeDateInput">
+                                                <option value="auto">Entrada: Auto</option>
+                                                <option value="dd/mm/yyyy">Entrada: DD/MM/YYYY</option>
+                                                <option value="mm/dd/yyyy">Entrada: MM/DD/YYYY</option>
+                                                <option value="yyyy-mm-dd">Entrada: YYYY-MM-DD</option>
+                                                <option value="dd/mm/yyyy hh:mm">Entrada: DD/MM/YYYY HH:mm</option>
+                                                <option value="mm/dd/yyyy hh:mm">Entrada: MM/DD/YYYY HH:mm</option>
+                                                <option value="iso-datetime">Entrada: ISO DateTime</option>
+                                            </select>
+                                            <select class="form-select form-select-sm mb-2" v-model="getMenuColumnConfig().localeDateOutput">
+                                                <option value="yyyy-mm-dd">Saida: YYYY-MM-DD</option>
+                                                <option value="dd/mm/yyyy">Saida: DD/MM/YYYY</option>
+                                                <option value="mm/dd/yyyy">Saida: MM/DD/YYYY</option>
+                                                <option value="dd/mm/yyyy hh:mm">Saida: DD/MM/YYYY HH:mm</option>
+                                                <option value="mm/dd/yyyy hh:mm">Saida: MM/DD/YYYY HH:mm</option>
+                                                <option value="iso-datetime">Saida: ISO DateTime</option>
+                                            </select>
+                                        </template>
+
+                                        <button class="btn btn-sm btn-outline-primary w-100" type="button" @click="applyLocaleNormalization(getMenuColumnIndex())">Aplicar normalizacao</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item">
                             <h2 id="pcMenuFiltersHeading" class="accordion-header">
                                 <button
                                     class="accordion-button collapsed"
@@ -2626,6 +2962,7 @@
                                             <option value="gt">Maior que</option>
                                             <option value="lt">Menor que</option>
                                             <option value="between">Entre</option>
+                                            <option value="duplicates">Duplicadas</option>
                                         </select>
                                         <div v-if="getMenuColumnConfig().filterOperator === 'between'" class="row g-2">
                                             <div class="col-6">
