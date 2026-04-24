@@ -2490,9 +2490,15 @@
         template: `
             <div class="app-wrap container-fluid">
                 <nav class="topbar">
-                    <div class="topbar-brand">
-                        <i class="fas fa-table" aria-hidden="true"></i>
-                        <span>ExcelConverter</span>
+                    <div class="d-flex align-items-center gap-4">
+                        <div class="topbar-brand">
+                            <i class="fas fa-table" aria-hidden="true"></i>
+                            <span>ExcelConverter</span>
+                        </div>
+                        <div class="topbar-nav">
+                            <a class="topbar-link is-active" href="index.html">Conversor</a>
+                            <a class="topbar-link" href="locale-normalizer.html">Normalizacao</a>
+                        </div>
                     </div>
                     <button class="theme-toggle" type="button" @click="toggleTheme" :title="state.theme === 'light' ? 'Ativar tema escuro' : 'Ativar tema claro'">
                         <i :class="state.theme === 'light' ? 'fas fa-moon-stars' : 'fas fa-sun'" aria-hidden="true"></i>
