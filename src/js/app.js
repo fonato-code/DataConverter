@@ -3537,7 +3537,8 @@
                                                                     <button
                                                                         class="btn btn-outline-secondary preview-handle-btn"
                                                                         type="button"
-                                                                        title="Arrastar coluna"
+                                                                        title="Arrastar coluna (clique direito: ocultar ou exibir no output)"
+                                                                        @contextmenu.prevent.stop="toggleStandardColumnVisibility(headerIndex)"
                                                                     >
                                                                         <i class="fas fa-grip-vertical" aria-hidden="true"></i>
                                                                     </button>
