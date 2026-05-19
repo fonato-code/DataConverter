@@ -30,8 +30,12 @@
         return "VARCHAR(255)";
     }
 
+    function isNullTextLiteral(value) {
+        return typeof value === "string" && value.trim().toLowerCase() === "null";
+    }
+
     function formatSqlValue(value, utils, convertEmptyToNull) {
-        if (value === "" && convertEmptyToNull) {
+        if (convertEmptyToNull && (value === "" || isNullTextLiteral(value))) {
             return "NULL";
         }
 
